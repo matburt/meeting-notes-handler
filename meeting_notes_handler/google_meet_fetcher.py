@@ -431,11 +431,28 @@ class GoogleMeetFetcher:
                         'metadata': conversion_result['metadata']
                     }
                     result['notes'].append(note_data)
-                    logger.info(f"Successfully converted document: {doc_id}")
+                    
+                    # Check if this was an error placeholder that succeeded
+                    if conversion_result.get('export_method') == 'error_placeholder':
+                        logger.warning(f"Document {doc_id} converted with errors - check content for details")
+                    else:
+                        logger.info(f"Successfully converted document: {doc_id}")
                 else:
-                    error_msg = f"Failed to convert document {doc_id}: {conversion_result.get('error', 'Unknown error')}"
-                    logger.error(error_msg)
-                    result['errors'].append(error_msg)
+                    # Provide more detailed error information
+                    error_type = conversion_result.get('error_type', 'unknown')
+                    error_msg = conversion_result.get('error', 'Unknown error')
+                    
+                    if error_type == 'file_not_found':
+                        friendly_error = f"Document not found (may be deleted or private): {doc_url}"
+                    elif error_type == 'access_denied':
+                        friendly_error = f"Access denied to document (permission required): {doc_url}"
+                    elif error_type == 'rate_limit':
+                        friendly_error = f"Rate limit exceeded - will retry later: {doc_url}"
+                    else:
+                        friendly_error = f"Failed to convert document {doc_id}: {error_msg}"
+                    
+                    logger.error(friendly_error)
+                    result['errors'].append(friendly_error)
                     
             except Exception as e:
                 error_msg = f"Error processing document {doc_id}: {e}"

@@ -4,6 +4,7 @@ import re
 import logging
 from typing import Dict, Any, Optional
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from markdownify import markdownify as md
@@ -22,6 +23,97 @@ class DocsConverter:
         self.credentials = credentials
         self.docs_service = build('docs', 'v1', credentials=credentials)
         self.drive_service = build('drive', 'v3', credentials=credentials)
+    
+    def _parse_google_api_error(self, error: Exception, file_id: str) -> Dict[str, str]:
+        """Parse Google API errors and provide user-friendly messages.
+        
+        Args:
+            error: The exception that occurred
+            file_id: The file ID that caused the error
+            
+        Returns:
+            Dictionary with error details and user-friendly message
+        """
+        if isinstance(error, HttpError):
+            status_code = error.resp.status
+            error_details = error.error_details if hasattr(error, 'error_details') else []
+            
+            if status_code == 404:
+                return {
+                    'type': 'file_not_found',
+                    'user_message': 'Document not found or inaccessible',
+                    'detailed_message': f'The document with ID {file_id} was not found. This could mean:\n'
+                                      f'• The document has been deleted\n'
+                                      f'• The document is private and you don\'t have access\n'
+                                      f'• The document link is broken or expired\n'
+                                      f'• The document was moved to a different location',
+                    'technical_error': str(error),
+                    'suggestions': [
+                        'Check if the document still exists by opening the original link',
+                        'Verify you have permission to access the document',
+                        'Ask the document owner to share it with you',
+                        'Remove this document from the meeting if it\'s no longer needed'
+                    ]
+                }
+            elif status_code == 403:
+                return {
+                    'type': 'access_denied',
+                    'user_message': 'Access denied to document',
+                    'detailed_message': f'You don\'t have permission to access document {file_id}. This could mean:\n'
+                                      f'• The document is private\n'
+                                      f'• Your Google account doesn\'t have the required permissions\n'
+                                      f'• The document\'s sharing settings have changed',
+                    'technical_error': str(error),
+                    'suggestions': [
+                        'Ask the document owner to share it with your account',
+                        'Check if you\'re signed in with the correct Google account',
+                        'Request "View" or "Comment" access to the document'
+                    ]
+                }
+            elif status_code == 429:
+                return {
+                    'type': 'rate_limit',
+                    'user_message': 'API rate limit exceeded',
+                    'detailed_message': f'Too many requests to Google Drive API. The system will retry automatically.',
+                    'technical_error': str(error),
+                    'suggestions': [
+                        'Wait a few moments and try again',
+                        'Consider processing fewer documents at once'
+                    ]
+                }
+            elif status_code >= 500:
+                return {
+                    'type': 'server_error',
+                    'user_message': 'Google Drive service temporarily unavailable',
+                    'detailed_message': f'Google\'s servers are experiencing issues (HTTP {status_code}). This is temporary.',
+                    'technical_error': str(error),
+                    'suggestions': [
+                        'Try again in a few minutes',
+                        'Check Google Workspace Status page for service issues'
+                    ]
+                }
+            else:
+                return {
+                    'type': 'api_error',
+                    'user_message': f'Google API error (HTTP {status_code})',
+                    'detailed_message': f'An unexpected API error occurred while accessing document {file_id}.',
+                    'technical_error': str(error),
+                    'suggestions': [
+                        'Try again in a few moments',
+                        'Check your internet connection'
+                    ]
+                }
+        else:
+            return {
+                'type': 'unknown_error',
+                'user_message': 'Unknown error accessing document',
+                'detailed_message': f'An unexpected error occurred while processing document {file_id}.',
+                'technical_error': str(error),
+                'suggestions': [
+                    'Try again later',
+                    'Check your internet connection and authentication'
+                ]
+            }
     
     def extract_document_id(self, doc_url: str) -> Optional[str]:
         """Extract document ID from Google Docs URL.
@@ -83,8 +175,17 @@ class DocsConverter:
             return metadata
             
         except Exception as e:
-            logger.error(f"Error getting document metadata for {doc_id}: {e}")
-            return {'id': doc_id, 'title': 'Unknown', 'error': str(e)}
+            error_info = self._parse_google_api_error(e, doc_id)
+            logger.error(f"Error getting document metadata for {doc_id}: {error_info['user_message']}")
+            logger.debug(f"Technical details: {error_info['technical_error']}")
+            
+            return {
+                'id': doc_id, 
+                'title': f"Error: {error_info['user_message']}",
+                'error': error_info['user_message'],
+                'error_type': error_info['type'],
+                'technical_error': error_info['technical_error']
+            }
     
     def convert_to_markdown(self, doc_id: str, use_native_export: bool = True, fallback_enabled: bool = True) -> Dict[str, Any]:
         """Convert a Google file to Markdown.
@@ -179,14 +280,47 @@ class DocsConverter:
             }
             
         except Exception as e:
-            logger.error(f"Error getting file info for {file_id}: {e}")
+            error_info = self._parse_google_api_error(e, file_id)
+            
+            # Log the detailed error for debugging
+            logger.error(f"Error getting file info for {file_id}: {error_info['user_message']}")
+            logger.debug(f"Technical details: {error_info['technical_error']}")
+            
+            # Create user-friendly content for the markdown output
+            content_parts = [
+                f"# ⚠️ Document Access Error",
+                "",
+                f"**File ID**: `{file_id}`",
+                f"**Error**: {error_info['user_message']}",
+                "",
+                "## What this means:",
+                error_info['detailed_message'],
+                "",
+                "## Suggested actions:",
+            ]
+            
+            for suggestion in error_info['suggestions']:
+                content_parts.append(f"• {suggestion}")
+                
+            content_parts.extend([
+                "",
+                "---",
+                "*This document was skipped during processing but the meeting notes will continue.*"
+            ])
+            
             return {
                 'success': False,
                 'id': file_id,
-                'title': 'Unknown',
-                'error': str(e),
-                'content': f"# Error: Unable to Access File\n\n**File ID**: {file_id}\n**Error**: {str(e)}\n\nThis file may be private, deleted, or require special permissions.",
-                'metadata': {'id': file_id, 'error': str(e)}
+                'title': f"Error: {error_info['user_message']}",
+                'error': error_info['user_message'],
+                'error_type': error_info['type'],
+                'technical_error': error_info['technical_error'],
+                'content': '\n'.join(content_parts),
+                'metadata': {
+                    'id': file_id, 
+                    'error': error_info['user_message'],
+                    'error_type': error_info['type']
+                }
             }
     
     def _convert_using_native_export(self, doc_id: str, fallback_enabled: bool = True, export_mime: str = 'text/markdown') -> Dict[str, Any]:
@@ -230,7 +364,9 @@ class DocsConverter:
             }
             
         except Exception as e:
-            logger.warning(f"Native {export_type} export failed for file {doc_id}: {e}")
+            error_info = self._parse_google_api_error(e, doc_id)
+            logger.warning(f"Native {export_type} export failed for file {doc_id}: {error_info['user_message']}")
+            logger.debug(f"Technical details: {error_info['technical_error']}")
             
             if fallback_enabled and export_mime == 'text/markdown':
                 logger.info(f"Falling back to manual parsing for document {doc_id}")
@@ -241,11 +377,35 @@ class DocsConverter:
                 file_type = file_info.get('file_type', 'Unknown File')
                 title = file_info.get('title', 'Unknown')
                 
+                # Create user-friendly error content
+                content_parts = [
+                    f"# {title}",
+                    "",
+                    f"**File Type**: {file_type}",
+                    f"**File ID**: `{doc_id}`",
+                    f"**Export Error**: {error_info['user_message']}",
+                    "",
+                    "## What happened:",
+                    error_info['detailed_message'],
+                    "",
+                    "## Suggested actions:",
+                ]
+                
+                for suggestion in error_info['suggestions']:
+                    content_parts.append(f"• {suggestion}")
+                    
+                content_parts.extend([
+                    "",
+                    "---",
+                    f"*Failed to export as {export_type}, but processing will continue.*"
+                ])
+                
                 return {
-                    'content': f"# {title}\n\n**File Type**: {file_type}\n**Error**: Could not export this file to {export_type}\n**Details**: {str(e)}\n**File ID**: {doc_id}",
-                    'metadata': file_info,
+                    'content': '\n'.join(content_parts),
+                    'metadata': {**file_info, 'export_error': error_info['user_message']},
                     'success': True,  # Mark as success with error message instead of failing
-                    'export_method': 'error_placeholder'
+                    'export_method': 'error_placeholder',
+                    'error_type': error_info['type']
                 }
     
     def _convert_using_manual_parsing(self, doc_id: str) -> Dict[str, Any]:
@@ -280,12 +440,20 @@ class DocsConverter:
             }
             
         except Exception as e:
-            logger.error(f"Error converting document {doc_id} to markdown: {e}")
+            error_info = self._parse_google_api_error(e, doc_id)
+            logger.error(f"Error converting document {doc_id} to markdown: {error_info['user_message']}")
+            logger.debug(f"Technical details: {error_info['technical_error']}")
+            
             return {
                 'content': '',
-                'metadata': {'id': doc_id, 'error': str(e)},
+                'metadata': {
+                    'id': doc_id, 
+                    'error': error_info['user_message'],
+                    'error_type': error_info['type']
+                },
                 'success': False,
-                'error': str(e)
+                'error': error_info['user_message'],
+                'error_type': error_info['type']
             }
     
     def _extract_text_content(self, doc: Dict[str, Any]) -> str:
