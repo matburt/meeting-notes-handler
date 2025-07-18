@@ -429,20 +429,128 @@ meeting-notes-handler/
 └── README.md                   # This file
 ```
 
-### Building and Testing
+### Testing
+
+The project includes a comprehensive test suite covering all major functionality:
+
+#### Test Coverage
+- **Error Handling**: Google API errors (404, 403, 429, 5xx) with user-friendly messages
+- **Rate Limiting**: Exponential backoff retry logic with jitter
+- **Document Classification**: Identification of Gemini vs human-created documents
+- **Meeting Series Tracking**: Recurring meeting detection and fingerprinting
+- **Content Extraction**: Smart content filtering and section parsing
+- **Google API Integration**: Mocked tests for Calendar and Drive APIs
+
+#### Running Tests
+
+##### Using uv (Recommended)
+```bash
+# Install development dependencies including pytest
+uv pip install -e ".[dev]"
+
+# Run all tests with verbose output
+uv run pytest tests/ -v
+
+# Run specific test files
+uv run pytest tests/test_docs_converter.py -v
+uv run pytest tests/test_document_classifier.py -v
+
+# Run tests with coverage reporting
+uv run pytest tests/ --cov=meeting_notes_handler --cov-report=html
+uv run pytest tests/ --cov=meeting_notes_handler --cov-report=term-missing
+
+# Run only fast unit tests (skip integration tests)
+uv run pytest tests/ -m "not integration" -v
+```
+
+##### Using standard pip
+```bash
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Install pytest if not included in dev dependencies
+pip install pytest pytest-cov
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run with coverage
+python -m pytest tests/ --cov=meeting_notes_handler --cov-report=html
+```
+
+#### Test Structure
+```
+tests/
+├── __init__.py
+├── test_document_classifier.py    # Document type classification tests
+├── test_series_tracker.py         # Meeting series detection tests  
+├── test_smart_extractor_simple.py # Content extraction core tests
+├── test_docs_converter.py         # Error handling and rate limiting tests
+└── test_google_meet_fetcher.py    # Google Calendar integration tests
+```
+
+#### Test Guidelines for Contributors
+
+When adding new features, always include corresponding tests:
+
+1. **Test File Naming**: Use `test_<module_name>.py` format in `tests/` directory
+2. **Mock External APIs**: Never hit real Google APIs in tests - use mocks
+3. **Test Error Paths**: Include tests for error conditions and edge cases
+4. **Coverage Target**: Aim for >80% code coverage on new features
+5. **Test Categories**:
+   - Constructor/initialization tests
+   - Core functionality tests
+   - Error handling tests
+   - Integration tests with mocks
+
+#### Example Test Pattern
+```python
+"""Tests for NewModule."""
+
+import pytest
+from unittest.mock import Mock, patch
+from meeting_notes_handler.new_module import NewClass
+
+
+class TestNewClass:
+    """Test cases for NewClass."""
+    
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.instance = NewClass()
+        
+    def test_core_functionality(self):
+        """Test core functionality with descriptive name."""
+        # Arrange
+        test_input = "test_data"
+        expected_output = "expected_result"
+        
+        # Act
+        result = self.instance.process(test_input)
+        
+        # Assert
+        assert result == expected_output
+        
+    def test_error_handling(self):
+        """Test error handling for invalid inputs."""
+        with pytest.raises(ValueError, match="Invalid input"):
+            self.instance.process(None)
+```
+
+### Building and Linting
 
 #### Using uv (Recommended)
 ```bash
 # Install development dependencies
 uv pip install -e ".[dev]"
 
-# Run tests
-uv run pytest
-
-# Run linting
+# Run linting and formatting
 uv run black meeting_notes_handler/
 uv run isort meeting_notes_handler/
 uv run flake8 meeting_notes_handler/
+
+# Type checking (if mypy is installed)
+uv run mypy meeting_notes_handler/
 
 # Build package
 uv run python -m build
@@ -453,16 +561,25 @@ uv run python -m build
 # Install development dependencies
 pip install -e ".[dev]"
 
-# Run tests
-pytest
-
-# Run linting
+# Run linting and formatting
 black meeting_notes_handler/
 isort meeting_notes_handler/
 flake8 meeting_notes_handler/
 
 # Build package
 python -m build
+```
+
+#### Pre-commit Hooks (Recommended)
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install hooks
+pre-commit install
+
+# Run hooks manually
+pre-commit run --all-files
 ```
 
 ### Contributing
