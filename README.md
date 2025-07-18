@@ -128,7 +128,8 @@ meeting-notes fetch --help
 |--------|-------|-------------|
 | `--days N` | `-d` | Number of days back to search (default: 7) |
 | `--accepted` | | Only fetch meetings you've accepted or are tentative for |
-| `--gemini-only` | `-g` | **NEW**: Only fetch Gemini notes and transcripts, skip other documents |
+| `--gemini-only` | `-g` | Only fetch Gemini notes and transcripts, skip other documents |
+| `--smart-filter` | `-s` | **NEW**: Apply smart content filtering to extract only new content from recurring meetings |
 | `--dry-run` | | Preview what would be fetched without saving files |
 | `--force` | `-f` | Force re-fetch meetings even if already processed |
 | `--week YYYY-WW` | `-w` | Fetch specific week (e.g., 2024-W03) |
@@ -153,8 +154,14 @@ uv run meeting-notes fetch --dry-run --days 30
 # Force re-fetch everything from last week
 uv run meeting-notes fetch --force --days 7
 
+# Apply smart filtering to extract only new content from recurring meetings
+uv run meeting-notes fetch --smart-filter --days 14
+
 # Combine options for specific workflow
 uv run meeting-notes fetch --gemini-only --accepted --days 14
+
+# Use smart filtering with Gemini-only for optimal LLM processing
+uv run meeting-notes fetch --smart-filter --gemini-only --accepted
 
 # List all available weeks
 uv run meeting-notes list-weeks
@@ -165,8 +172,9 @@ uv run meeting-notes list-meetings 2024-W15
 # Check current configuration
 uv run meeting-notes config-show
 
-# Using short alias
+# Using short aliases
 uv run mns fetch -g -d 14  # Gemini-only for last 14 days
+uv run mns fetch -s -g     # Smart filter + Gemini for new content only
 ```
 
 ## 🎯 Gemini Integration (New Feature)
@@ -197,6 +205,48 @@ meeting-notes fetch --gemini-only --days 30
 
 # Combine with other filters
 meeting-notes fetch --gemini-only --accepted --force
+```
+
+## 🧠 Smart Content Filtering (New Feature)
+
+The `--smart-filter` flag provides intelligent content diffing for recurring meetings, extracting only genuinely new content for optimal LLM processing.
+
+### How it works:
+- **Automatic Series Detection**: Identifies recurring meetings using normalized titles, organizer, and time patterns
+- **Document Classification**: Distinguishes between ephemeral content (always new) and persistent content (may have updates)
+- **Section-Level Comparison**: Compares previous meeting content at paragraph/section level to identify new information
+- **Content Reduction**: Filters out duplicate content while preserving all genuinely new information
+
+### What gets filtered:
+- **Ephemeral Content** (always included): Gemini notes, transcripts, chat logs, meeting-specific recordings
+- **Persistent Content** (compared): Shared project documents, planning boards, action item lists, status updates
+
+### Benefits:
+- **Reduced Processing Time**: Significantly smaller files for LLM analysis
+- **Focus on New Information**: Eliminates repetitive content from recurring meetings
+- **Automatic Operation**: No manual intervention required - works intelligently in the background
+- **Safe Filtering**: Conservative approach ensures important content is never lost
+
+### Example Results:
+```bash
+# Before smart filtering: 50,000 words across all documents
+# After smart filtering: 12,000 words (76% reduction, only new content)
+
+uv run meeting-notes fetch --smart-filter --days 14
+# 🧠 SMART FILTER - Extracting only new content from recurring meetings
+# Smart filtering reduced content by 76.0% (50000 → 12000 words)
+```
+
+### Perfect for:
+```bash
+# LLM-optimized content extraction
+meeting-notes fetch --smart-filter --gemini-only --accepted
+
+# Analyze only what's new in weekly status meetings
+meeting-notes fetch --smart-filter --days 7
+
+# Extract new content from specific recurring meeting series
+meeting-notes fetch --smart-filter --force  # Re-analyze all previous meetings
 ```
 
 ## 📁 File Organization
@@ -424,21 +474,34 @@ python -m build
 
 ## 🔮 Roadmap
 
-### Phase 2: Analysis and Intelligence
+### ✅ Phase 1: Smart Content Processing (COMPLETED)
+- **Smart content filtering** for recurring meetings
+- **Document classification** (ephemeral vs persistent)
+- **Automatic series detection** and tracking
+- **Section-level content comparison** and diffing
+- **LLM-optimized output** with content reduction
+
+### Phase 2: Advanced Analysis and Intelligence
 - **AI-powered summarization** of meeting content
 - **Action item extraction** and tracking
 - **Attendee analysis** and meeting patterns
 - **Topic clustering** across meetings
 - **Meeting effectiveness metrics**
 
-### Phase 3: Integration and Automation
+### Phase 3: Enhanced Intelligence
+- **Cross-meeting analysis** and trend detection
+- **Meeting series insights** and optimization suggestions
+- **Content similarity analysis** across different meeting series
+- **Automated follow-up tracking** based on filtered content
+
+### Phase 4: Integration and Automation
 - **Slack/Teams integration** for automatic sharing
 - **Calendar integration** for action item scheduling
 - **Email digest** of weekly meeting summaries
 - **API endpoints** for custom integrations
 - **Webhook support** for real-time processing
 
-### Phase 4: User Experience
+### Phase 5: User Experience
 - **Web interface** for non-technical users
 - **Advanced search** and filtering capabilities
 - **Export options** (PDF, Word, etc.)
