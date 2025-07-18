@@ -1,0 +1,35 @@
+# Example configuration file for Meeting Notes Summarizer
+# Copy this to config.yaml and customize as needed
+
+google:
+  credentials_file: "credentials.json"
+  token_file: "token.json"
+  scopes:
+    - "https://www.googleapis.com/auth/calendar.readonly"
+    - "https://www.googleapis.com/auth/drive.readonly"
+    - "https://www.googleapis.com/auth/documents.readonly"
+
+output:
+  directory: "./meeting_notes"
+  file_format: "meeting_{date}_{time}_{title}.md"
+  date_format: "%Y%m%d"
+  time_format: "%H%M%S"
+
+calendar:
+  keywords:
+    - "meet.google.com"
+    - "Google Meet"
+  days_back: 7
+
+docs:
+  # Use Google Docs native Markdown export (recommended)
+  # This provides better formatting and preserves document structure
+  use_native_export: true
+  
+  # Fall back to manual parsing if native export fails
+  # Set to false to fail fast if native export doesn't work
+  fallback_to_manual: true
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

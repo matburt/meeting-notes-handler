@@ -1,0 +1,20 @@
+# Include package metadata
+include README.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+
+# Include configuration files
+recursive-include meeting_notes_summarizer *.yaml
+recursive-include meeting_notes_summarizer *.yml
+recursive-include meeting_notes_summarizer *.json
+
+# Exclude development and test files
+exclude .gitignore
+exclude alternative_auth_setup.md
+exclude CLAUDE.md
+recursive-exclude tests *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * *.so
+recursive-exclude * .DS_Store
