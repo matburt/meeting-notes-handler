@@ -212,7 +212,7 @@ class TestDocsConverter:
             ("https://docs.google.com/presentation/d/QWE345RTY678/edit", "QWE345RTY678"),
             ("https://drive.google.com/file/d/ZXC901VBN234/view", "ZXC901VBN234"),
             ("https://docs.google.com/document/d/MNB567UIO890/edit?usp=sharing", "MNB567UIO890"),
-            ("ABC123DEF456", "ABC123DEF456"),  # Direct ID
+            ("1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms", "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"),  # Valid Google Drive ID (>20 chars)
             ("invalid-url", None),
             ("", None)
         ]

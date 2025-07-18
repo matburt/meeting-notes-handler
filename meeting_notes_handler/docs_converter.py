@@ -191,19 +191,26 @@ class DocsConverter:
         Returns:
             Document ID if found, None otherwise.
         """
+        if not doc_url:
+            return None
+            
         patterns = [
             r'/document/d/([a-zA-Z0-9-_]+)',      # Google Docs
             r'/spreadsheets/d/([a-zA-Z0-9-_]+)',  # Google Sheets
             r'/presentation/d/([a-zA-Z0-9-_]+)',  # Google Slides
             r'/file/d/([a-zA-Z0-9-_]+)',          # Generic Drive URLs
             r'id=([a-zA-Z0-9-_]+)',               # Query parameter
-            r'^([a-zA-Z0-9-_]+)$'                 # Direct ID
         ]
         
+        # Check URL patterns first
         for pattern in patterns:
             match = re.search(pattern, doc_url)
             if match:
                 return match.group(1)
+        
+        # Only treat as direct ID if it looks like a valid Google Drive ID (no invalid characters)
+        if re.match(r'^[a-zA-Z0-9-_]{20,}$', doc_url):
+            return doc_url
         
         logger.warning(f"Could not extract document ID from URL: {doc_url}")
         return None

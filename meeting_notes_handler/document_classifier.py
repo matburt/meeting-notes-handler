@@ -40,7 +40,7 @@ class DocumentClassifier:
             r'notes\s+by\s+gemini',
             r'gemini\s+notes',
             r'meeting\s+notes.*gemini',
-            r'auto.*generated.*notes',
+            r'auto.*generated.*(notes|summary)',
             
             # Transcripts and recordings
             r'transcript',
@@ -117,6 +117,9 @@ class DocumentClassifier:
         """
         if metadata is None:
             metadata = {}
+        
+        if not title:
+            return DocumentType.UNKNOWN, 0.0
             
         title_lower = title.lower()
         content_lower = content.lower() if content else ""

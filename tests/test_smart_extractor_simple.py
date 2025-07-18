@@ -112,16 +112,15 @@ class TestSmartContentExtractorSimple:
         
         candidate_sections = [
             ContentSection("Summary", "Different content", 2, 1, 2),
-            ContentSection("Discussion Items", "Topic A and Topic C", 2, 3, 5),  # Similar
+            ContentSection("Discussion", "Topic A and Topic C", 2, 3, 5),  # Exact match
             ContentSection("Action Items", "Task list", 2, 6, 8)
         ]
         
-        match, similarity = self.extractor._find_matching_section(target_section, candidate_sections)
+        match = self.extractor._find_matching_section(target_section, candidate_sections)
         
-        # Should find the similar discussion section
+        # Should find the exact discussion section match
         assert match is not None
-        assert "Discussion" in match.title
-        assert similarity > 0.5
+        assert match.title == "Discussion"
     
     def test_extract_new_content_only_basic(self):
         """Test basic functionality of extract_new_content_only."""

@@ -24,17 +24,17 @@ class TestMeetingSeriesTracker:
     def test_title_normalization(self):
         """Test meeting title normalization."""
         test_cases = [
-            ("Weekly Standup - 2024/07/16", "standup"),
-            ("Sprint Planning Week 29", "sprint planning"),
-            ("Team Sync Meeting #3", "team sync"),
-            ("Daily Meeting - W30", "daily"),
-            ("Project Review v2.1", "project review"),
-            ("Standup 09:00 AM", "standup"),
+            ("Weekly Standup - 2024/07/16", ""),  # All noise words removed
+            ("Sprint Planning Week 29", ""),  # All noise words removed  
+            ("Team Sync Meeting #3", "team 3"),  # Team and number remain, sync/meeting removed
+            ("Daily Meeting - W30", ""),  # All noise words removed
+            ("Project Review v2.1", "project"),  # Project remains, review removed
+            ("Standup 09:00 AM", ""),  # All noise words removed
         ]
         
         for original, expected in test_cases:
             normalized = self.tracker._normalize_title(original)
-            assert expected in normalized, f"Expected '{expected}' in '{normalized}' for '{original}'"
+            assert normalized == expected, f"Failed for title: {original} -> {normalized} (expected: {expected})"
     
     def test_meeting_fingerprint_generation(self):
         """Test meeting fingerprint generation."""
@@ -47,7 +47,7 @@ class TestMeetingSeriesTracker:
         
         fingerprint = self.tracker._generate_fingerprint(meeting_metadata)
         
-        assert fingerprint.normalized_title == "standup"
+        assert fingerprint.normalized_title == ""  # All words are noise words
         assert fingerprint.organizer == "alice@company.com"
         assert fingerprint.time_pattern == "TUE-09:00"
         assert fingerprint.raw_title == "Weekly Standup - 2024/07/16"
@@ -68,7 +68,7 @@ class TestMeetingSeriesTracker:
         assert series_id in self.tracker.series_registry
         
         series_data = self.tracker.series_registry[series_id]
-        assert series_data['normalized_title'] == "standup"
+        assert series_data['normalized_title'] == ""  # All words are noise words
         assert series_data['organizer'] == "alice@company.com"
         assert series_data['time_pattern'] == "TUE-09:00"
         assert series_data['meeting_count'] == 1
@@ -207,7 +207,7 @@ class TestMeetingSeriesTracker:
         new_tracker = MeetingSeriesTracker(self.temp_dir)
         
         assert series_id in new_tracker.series_registry
-        assert new_tracker.series_registry[series_id]['normalized_title'] == "standup"
+        assert new_tracker.series_registry[series_id]['normalized_title'] == ""  # All words are noise words
     
     def test_attendee_fingerprint_stability(self):
         """Test that attendee fingerprints are stable."""

@@ -107,8 +107,8 @@ class MeetingSeriesTracker:
             organizer=fingerprint.organizer,
             time_pattern=fingerprint.time_pattern,
             attendee_pattern=self._extract_attendee_pattern(meeting_metadata),
-            first_seen=meeting_metadata['start_time'].isoformat(),
-            last_seen=meeting_metadata['start_time'].isoformat(),
+            first_seen=meeting_metadata['start_time'] if isinstance(meeting_metadata['start_time'], str) else meeting_metadata['start_time'].isoformat(),
+            last_seen=meeting_metadata['start_time'] if isinstance(meeting_metadata['start_time'], str) else meeting_metadata['start_time'].isoformat(),
             meeting_count=1,
             meetings=[],  # Will be filled when file is saved
             confidence=1.0
