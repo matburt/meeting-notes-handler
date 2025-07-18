@@ -48,7 +48,7 @@ setup(
             'mns=meeting_notes_handler.main:cli',  # Short alias
         ],
     },
-    python_requires=">=3.8",
+    python_requires=">=3.12",
     keywords=['google-meet', 'calendar', 'meeting-notes', 'productivity', 'automation'],
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -58,10 +58,6 @@ setup(
         "Topic :: Text Processing :: Markup :: Markdown",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
         "Operating System :: OS Independent",
     ],

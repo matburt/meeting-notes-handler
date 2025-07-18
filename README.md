@@ -14,27 +14,49 @@ A powerful Python command-line tool that automatically fetches and organizes Goo
 - ⚙️ **Highly Configurable**: Flexible configuration with YAML and environment variables
 - 🖥️ **Professional CLI**: Comprehensive command-line interface with helpful feedback
 
+## 📋 Requirements
+
+- **Python 3.12+** (required for latest features and performance)
+- **Google account** with Calendar and Drive access
+- **Google CLI** (recommended) or Google Cloud project for authentication
+- **uv** (recommended) or pip for package management
+
 ## 🚀 Quick Start
 
 ### 1. Installation
 
-#### Option A: Install from source (Recommended for development)
+#### Recommended: Using uv (Fast Python Package Manager)
+```bash
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone the repository
+git clone https://github.com/matburt/meeting-notes-handler.git
+cd meeting-notes-handler
+
+# Install with uv (creates venv automatically)
+uv pip install -e .
+
+# For development with extra dependencies
+uv pip install -e ".[dev]"
+```
+
+#### Alternative: Using pip
 ```bash
 git clone https://github.com/matburt/meeting-notes-handler.git
 cd meeting-notes-handler
+
+# Create virtual environment (Python 3.12+ required)
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install in editable mode
 pip install -e .
 ```
 
-#### Option B: Install as package
+#### Quick Install (No Development)
 ```bash
 pip install git+https://github.com/matburt/meeting-notes-handler.git
-# or from local directory
-pip install .
-```
-
-#### Option C: Development setup
-```bash
-pip install -e ".[dev]"  # Includes testing and linting tools
 ```
 
 ### 2. Authentication Setup
@@ -340,6 +362,25 @@ meeting-notes-handler/
 ```
 
 ### Building and Testing
+
+#### Using uv (Recommended)
+```bash
+# Install development dependencies
+uv pip install -e ".[dev]"
+
+# Run tests
+uv run pytest
+
+# Run linting
+uv run black meeting_notes_handler/
+uv run isort meeting_notes_handler/
+uv run flake8 meeting_notes_handler/
+
+# Build package
+uv run python -m build
+```
+
+#### Using standard pip
 ```bash
 # Install development dependencies
 pip install -e ".[dev]"
