@@ -2,7 +2,9 @@
 
 import re
 import logging
-from typing import Dict, Any, Optional
+import time
+import random
+from typing import Dict, Any, Optional, Callable
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.auth.transport.requests import Request
@@ -23,6 +25,11 @@ class DocsConverter:
         self.credentials = credentials
         self.docs_service = build('docs', 'v1', credentials=credentials)
         self.drive_service = build('drive', 'v3', credentials=credentials)
+        
+        # Rate limiting configuration
+        self.max_retries = 3
+        self.base_delay = 1.0  # Base delay in seconds
+        self.max_delay = 60.0  # Maximum delay in seconds
     
     def _parse_google_api_error(self, error: Exception, file_id: str) -> Dict[str, str]:
         """Parse Google API errors and provide user-friendly messages.
@@ -73,12 +80,14 @@ class DocsConverter:
             elif status_code == 429:
                 return {
                     'type': 'rate_limit',
-                    'user_message': 'API rate limit exceeded',
-                    'detailed_message': f'Too many requests to Google Drive API. The system will retry automatically.',
+                    'user_message': 'API rate limit exceeded after retries',
+                    'detailed_message': f'Too many requests to Google Drive API. The system automatically retried {self.max_retries} times with exponential backoff, but the rate limit persisted.',
                     'technical_error': str(error),
                     'suggestions': [
-                        'Wait a few moments and try again',
-                        'Consider processing fewer documents at once'
+                        'This is temporary - try running the command again in a few minutes',
+                        'Consider processing fewer documents at once using --days with a smaller number',
+                        'Use --accepted flag to process only accepted meetings',
+                        'Process meetings in smaller batches'
                     ]
                 }
             elif status_code >= 500:
@@ -114,6 +123,64 @@ class DocsConverter:
                     'Check your internet connection and authentication'
                 ]
             }
+    
+    def _retry_with_backoff(self, func: Callable, *args, **kwargs) -> Any:
+        """Retry a function with exponential backoff for rate limiting and transient errors.
+        
+        Args:
+            func: Function to retry
+            *args: Arguments to pass to the function
+            **kwargs: Keyword arguments to pass to the function
+            
+        Returns:
+            Result of the function call
+            
+        Raises:
+            The last exception if all retries fail
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries + 1):  # +1 for initial attempt
+            try:
+                return func(*args, **kwargs)
+                
+            except HttpError as e:
+                last_exception = e
+                status_code = e.resp.status
+                
+                # Only retry on rate limiting (429) and server errors (5xx)
+                if status_code == 429 or status_code >= 500:
+                    if attempt < self.max_retries:
+                        # Calculate delay with exponential backoff + jitter
+                        delay = min(
+                            self.base_delay * (2 ** attempt) + random.uniform(0, 1),
+                            self.max_delay
+                        )
+                        
+                        logger.warning(
+                            f"HTTP {status_code} error (attempt {attempt + 1}/{self.max_retries + 1}). "
+                            f"Retrying in {delay:.1f} seconds..."
+                        )
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(
+                            f"HTTP {status_code} error after {self.max_retries + 1} attempts. Giving up."
+                        )
+                        break
+                else:
+                    # Don't retry on other errors (404, 403, etc.)
+                    logger.debug(f"HTTP {status_code} error - not retrying")
+                    break
+                    
+            except Exception as e:
+                # Don't retry on non-HTTP errors
+                last_exception = e
+                logger.debug(f"Non-HTTP error - not retrying: {e}")
+                break
+        
+        # If we get here, all retries failed
+        raise last_exception
     
     def extract_document_id(self, doc_url: str) -> Optional[str]:
         """Extract document ID from Google Docs URL.
@@ -151,14 +218,18 @@ class DocsConverter:
             Dictionary with document metadata.
         """
         try:
-            # Get file metadata from Drive API
-            file_metadata = self.drive_service.files().get(
-                fileId=doc_id,
-                fields='id,name,createdTime,modifiedTime,owners,shared'
-            ).execute()
+            # Get file metadata from Drive API with retry
+            file_metadata = self._retry_with_backoff(
+                lambda: self.drive_service.files().get(
+                    fileId=doc_id,
+                    fields='id,name,createdTime,modifiedTime,owners,shared'
+                ).execute()
+            )
             
-            # Get document content structure from Docs API
-            doc = self.docs_service.documents().get(documentId=doc_id).execute()
+            # Get document content structure from Docs API with retry
+            doc = self._retry_with_backoff(
+                lambda: self.docs_service.documents().get(documentId=doc_id).execute()
+            )
             
             metadata = {
                 'id': file_metadata['id'],
@@ -241,10 +312,12 @@ class DocsConverter:
             Dictionary with file information.
         """
         try:
-            file_metadata = self.drive_service.files().get(
-                fileId=file_id,
-                fields='id,name,mimeType,createdTime,modifiedTime,owners,shared'
-            ).execute()
+            file_metadata = self._retry_with_backoff(
+                lambda: self.drive_service.files().get(
+                    fileId=file_id,
+                    fields='id,name,mimeType,createdTime,modifiedTime,owners,shared'
+                ).execute()
+            )
             
             mime_type = file_metadata.get('mimeType', '')
             
@@ -338,13 +411,13 @@ class DocsConverter:
             export_type = export_mime.split('/')[-1].upper()
             logger.info(f"Converting file {doc_id} using native {export_type} export")
             
-            # Export file
-            export_request = self.drive_service.files().export(
-                fileId=doc_id,
-                mimeType=export_mime
+            # Export file with retry
+            content_bytes = self._retry_with_backoff(
+                lambda: self.drive_service.files().export(
+                    fileId=doc_id,
+                    mimeType=export_mime
+                ).execute()
             )
-            
-            content_bytes = export_request.execute()
             content = content_bytes.decode('utf-8')
             
             # For CSV files, add some basic markdown formatting
@@ -420,8 +493,10 @@ class DocsConverter:
         try:
             logger.info(f"Converting document {doc_id} using manual parsing")
             
-            # Get document content
-            doc = self.docs_service.documents().get(documentId=doc_id).execute()
+            # Get document content with retry
+            doc = self._retry_with_backoff(
+                lambda: self.docs_service.documents().get(documentId=doc_id).execute()
+            )
             
             # Extract text content
             content = self._extract_text_content(doc)

@@ -2,9 +2,12 @@
 
 import re
 import logging
+import time
+import random
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Callable
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -31,6 +34,69 @@ class GoogleMeetFetcher:
         self.docs_converter = None
         self.file_organizer = FileOrganizer(config.output_directory)
         self.smart_extractor = SmartContentExtractor(config.output_directory)
+        
+        # Rate limiting configuration (same as DocsConverter)
+        self.max_retries = 3
+        self.base_delay = 1.0  # Base delay in seconds
+        self.max_delay = 60.0  # Maximum delay in seconds
+    
+    def _retry_with_backoff(self, func: Callable, *args, **kwargs) -> Any:
+        """Retry a function with exponential backoff for rate limiting and transient errors.
+        
+        Args:
+            func: Function to retry
+            *args: Arguments to pass to the function
+            **kwargs: Keyword arguments to pass to the function
+            
+        Returns:
+            Result of the function call
+            
+        Raises:
+            The last exception if all retries fail
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries + 1):  # +1 for initial attempt
+            try:
+                return func(*args, **kwargs)
+                
+            except HttpError as e:
+                last_exception = e
+                status_code = e.resp.status
+                
+                # Only retry on rate limiting (429) and server errors (5xx)
+                if status_code == 429 or status_code >= 500:
+                    if attempt < self.max_retries:
+                        # Calculate delay with exponential backoff + jitter
+                        delay = min(
+                            self.base_delay * (2 ** attempt) + random.uniform(0, 1),
+                            self.max_delay
+                        )
+                        
+                        logger.warning(
+                            f"Calendar API HTTP {status_code} error (attempt {attempt + 1}/{self.max_retries + 1}). "
+                            f"Retrying in {delay:.1f} seconds..."
+                        )
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(
+                            f"Calendar API HTTP {status_code} error after {self.max_retries + 1} attempts. Giving up."
+                        )
+                        break
+                else:
+                    # Don't retry on other errors (404, 403, etc.)
+                    logger.debug(f"Calendar API HTTP {status_code} error - not retrying")
+                    break
+                    
+            except Exception as e:
+                # Don't retry on non-HTTP errors
+                last_exception = e
+                logger.debug(f"Calendar API non-HTTP error - not retrying: {e}")
+                break
+        
+        # If we get here, all retries failed
+        raise last_exception
     
     def authenticate(self) -> bool:
         """Authenticate with Google APIs.
@@ -115,14 +181,16 @@ class GoogleMeetFetcher:
         try:
             logger.info(f"Fetching meetings from {days_back} days back")
             
-            events_result = self.calendar_service.events().list(
-                calendarId='primary',
-                timeMin=time_min,
-                timeMax=time_max,
-                maxResults=100,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
+            events_result = self._retry_with_backoff(
+                lambda: self.calendar_service.events().list(
+                    calendarId='primary',
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    maxResults=100,
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+            )
             
             events = events_result.get('items', [])
             
