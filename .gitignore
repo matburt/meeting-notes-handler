@@ -131,7 +131,6 @@ dmypy.json
 
 # uv
 .uv/
-uv.lock
 
 # Sensitive files
 credentials.json

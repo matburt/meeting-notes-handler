@@ -81,16 +81,32 @@ gcloud services enable calendar-json.googleapis.com drive.googleapis.com docs.go
 
 ### 3. Initial Setup and Test
 ```bash
+# Using uv (recommended)
+uv run meeting-notes setup
+
+# Or with activated venv
+source .venv/bin/activate
 meeting-notes setup
-# This will guide you through configuration and test authentication
 ```
 
 ### 4. Start Fetching Meeting Notes
+
+#### Using uv (Recommended)
 ```bash
 # Fetch meetings from the last 7 days (default)
-meeting-notes fetch
+uv run meeting-notes fetch
 
 # See all available options
+uv run meeting-notes fetch --help
+```
+
+#### Using activated virtual environment
+```bash
+# Activate the virtual environment first
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Then run commands directly
+meeting-notes fetch
 meeting-notes fetch --help
 ```
 
@@ -119,36 +135,38 @@ meeting-notes fetch --help
 
 ### Example Usage
 
+**Note**: If not using an activated virtual environment, prefix all commands with `uv run`
+
 ```bash
 # Basic usage - fetch last 7 days
-meeting-notes fetch
+uv run meeting-notes fetch
 
 # Fetch from last 14 days, only accepted meetings
-meeting-notes fetch --days 14 --accepted
+uv run meeting-notes fetch --days 14 --accepted
 
 # Only fetch Gemini-generated notes and transcripts
-meeting-notes fetch --gemini-only
+uv run meeting-notes fetch --gemini-only
 
 # Preview what would be fetched without saving
-meeting-notes fetch --dry-run --days 30
+uv run meeting-notes fetch --dry-run --days 30
 
 # Force re-fetch everything from last week
-meeting-notes fetch --force --days 7
+uv run meeting-notes fetch --force --days 7
 
 # Combine options for specific workflow
-meeting-notes fetch --gemini-only --accepted --days 14
+uv run meeting-notes fetch --gemini-only --accepted --days 14
 
 # List all available weeks
-meeting-notes list-weeks
+uv run meeting-notes list-weeks
 
 # Show meetings in a specific week
-meeting-notes list-meetings 2024-W15
+uv run meeting-notes list-meetings 2024-W15
 
 # Check current configuration
-meeting-notes config-show
+uv run meeting-notes config-show
 
 # Using short alias
-mns fetch -g -d 14  # Gemini-only for last 14 days
+uv run mns fetch -g -d 14  # Gemini-only for last 14 days
 ```
 
 ## 🎯 Gemini Integration (New Feature)
