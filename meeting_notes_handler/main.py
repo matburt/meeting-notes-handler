@@ -57,8 +57,9 @@ def cli(ctx, config, log_level, version):
 @click.option('--accepted', is_flag=True, default=False, help='Only fetch notes from meetings you accepted or are tentative for.')
 @click.option('--force', '-f', is_flag=True, default=False, help='Force re-fetch meetings even if already processed')
 @click.option('--gemini-only', '-g', is_flag=True, default=False, help='Only fetch Gemini notes and transcripts, skip other documents')
+@click.option('--smart-filter', '-s', is_flag=True, default=False, help='Apply smart content filtering to extract only new content from recurring meetings')
 @click.pass_context
-def fetch(ctx, days, dry_run, week, accepted, force, gemini_only):
+def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter):
     """Fetch meeting notes from Google Calendar and Docs."""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
@@ -76,6 +77,8 @@ def fetch(ctx, days, dry_run, week, accepted, force, gemini_only):
         click.echo("🔄 FORCE MODE - Will re-fetch already processed meetings")
     if gemini_only:
         click.echo("🤖 GEMINI MODE - Only fetching Gemini notes and transcripts")
+    if smart_filter:
+        click.echo("🧠 SMART FILTER - Extracting only new content from recurring meetings")
 
     try:
         fetcher = GoogleMeetFetcher(config)
@@ -88,7 +91,7 @@ def fetch(ctx, days, dry_run, week, accepted, force, gemini_only):
         click.echo("✅ Authentication successful")
         
         # Fetch and process meetings
-        results = fetcher.fetch_and_process_all(days_back=days, dry_run=dry_run, accepted_only=accepted, force_refetch=force, gemini_only=gemini_only)
+        results = fetcher.fetch_and_process_all(days_back=days, dry_run=dry_run, accepted_only=accepted, force_refetch=force, gemini_only=gemini_only, smart_filtering=smart_filter)
         
         if results['success']:
             click.echo(f"\n📊 Results:")

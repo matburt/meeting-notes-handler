@@ -12,6 +12,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from .config import Config
 from .docs_converter import DocsConverter
 from .file_organizer import FileOrganizer
+from .smart_extractor import SmartContentExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class GoogleMeetFetcher:
         self.calendar_service = None
         self.docs_converter = None
         self.file_organizer = FileOrganizer(config.output_directory)
+        self.smart_extractor = SmartContentExtractor(config.output_directory)
     
     def authenticate(self) -> bool:
         """Authenticate with Google APIs.
@@ -369,12 +371,14 @@ class GoogleMeetFetcher:
         
         return list(set(docs_links))  # Remove duplicates
     
-    def process_meeting_notes(self, meeting: Dict[str, Any], save_to_file: bool = True) -> Dict[str, Any]:
+    def process_meeting_notes(self, meeting: Dict[str, Any], save_to_file: bool = True, 
+                             smart_filtering: bool = False) -> Dict[str, Any]:
         """Process meeting notes by fetching and converting associated docs.
         
         Args:
             meeting: Meeting information dictionary.
             save_to_file: Whether to save the processed notes to file.
+            smart_filtering: Whether to apply smart content filtering for new content only.
             
         Returns:
             Dictionary with processed meeting notes and metadata.
@@ -441,7 +445,68 @@ class GoogleMeetFetcher:
         if result['notes']:
             result['success'] = True
             
-            if save_to_file:
+            # Apply smart content filtering if enabled
+            if smart_filtering:
+                try:
+                    logger.info(f"Applying smart content filtering for meeting: {meeting['title']}")
+                    
+                    # Prepare documents for filtering
+                    documents = []
+                    for note in result['notes']:
+                        doc_dict = {
+                            'title': note['metadata'].get('title', 'Untitled Document'),
+                            'url': note['doc_url'],
+                            'content': note['content'],
+                            'metadata': note['metadata']
+                        }
+                        documents.append(doc_dict)
+                    
+                    # Apply smart filtering
+                    filtering_result = self.smart_extractor.extract_new_content_only(meeting, documents)
+                    
+                    # Register this meeting with the series tracker if new content was found
+                    if filtering_result.has_new_content and filtering_result.series_id:
+                        meeting_file_path = f"{meeting['start_time'].strftime('%Y-W%U')}/meeting_{meeting['start_time'].strftime('%Y%m%d_%H%M%S')}_{meeting['title'].lower().replace(' ', '_')}.md"
+                        self.smart_extractor.series_tracker.add_meeting_to_series(filtering_result.series_id, meeting_file_path)
+                    
+                    if filtering_result.has_new_content:
+                        # Replace notes with filtered content
+                        filtered_notes = []
+                        for filtered_doc in filtering_result.filtered_documents:
+                            filtered_note = {
+                                'doc_id': self.docs_converter.extract_document_id(filtered_doc.original_url),
+                                'doc_url': filtered_doc.original_url,
+                                'content': filtered_doc.filtered_content,
+                                'metadata': {
+                                    'title': filtered_doc.title,
+                                    'change_summary': filtered_doc.change_summary,
+                                    'doc_type': filtered_doc.doc_type.value
+                                }
+                            }
+                            filtered_notes.append(filtered_note)
+                        
+                        result['notes'] = filtered_notes
+                        result['filtering_applied'] = True
+                        result['content_reduction'] = filtering_result.content_reduction_percentage
+                        result['original_word_count'] = filtering_result.original_word_count
+                        result['filtered_word_count'] = filtering_result.filtered_word_count
+                        
+                        logger.info(f"Smart filtering reduced content by {filtering_result.content_reduction_percentage:.1f}% "
+                                   f"({filtering_result.original_word_count} → {filtering_result.filtered_word_count} words)")
+                    else:
+                        logger.info("No new content found after smart filtering - no files will be saved")
+                        result['notes'] = []
+                        result['filtering_applied'] = True
+                        result['content_reduction'] = 100.0
+                        result['has_new_content'] = False
+                        
+                except Exception as e:
+                    error_msg = f"Error during smart content filtering: {e}"
+                    logger.error(error_msg)
+                    result['errors'].append(error_msg)
+                    # Continue with unfiltered content if filtering fails
+            
+            if save_to_file and result['notes']:
                 try:
                     self._save_meeting_notes(meeting, result['notes'])
                     logger.info(f"Saved notes for meeting: {meeting['title']}")
@@ -510,7 +575,8 @@ class GoogleMeetFetcher:
                              dry_run: bool = False,
                              accepted_only: bool = False,
                              force_refetch: bool = False,
-                             gemini_only: bool = False) -> Dict[str, Any]:
+                             gemini_only: bool = False,
+                             smart_filtering: bool = False) -> Dict[str, Any]:
         """Fetch and process all recent meeting notes.
         
         Args:
@@ -519,6 +585,7 @@ class GoogleMeetFetcher:
             accepted_only: If True, only fetch meetings the user has accepted.
             force_refetch: If True, reprocess meetings even if already processed.
             gemini_only: If True, only fetch Gemini notes and transcripts.
+            smart_filtering: If True, apply smart content filtering for new content only.
             
         Returns:
             Dictionary with processing results.
@@ -560,7 +627,7 @@ class GoogleMeetFetcher:
                         continue
                 
                 logger.info(f"Processing meeting: {meeting['title']}")
-                process_result = self.process_meeting_notes(meeting, save_to_file=not dry_run)
+                process_result = self.process_meeting_notes(meeting, save_to_file=not dry_run, smart_filtering=smart_filtering)
                 
                 results['meetings_processed'] += 1
                 
