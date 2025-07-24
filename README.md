@@ -14,6 +14,12 @@ A powerful Python command-line tool that automatically fetches and organizes Goo
 - ⚙️ **Highly Configurable**: Flexible configuration with YAML and environment variables
 - 🖥️ **Professional CLI**: Comprehensive command-line interface with helpful feedback
 
+## 📚 Documentation
+
+- 📋 **[File Organization & Format Specification](docs/file-organization.md)** - Complete guide to directory structure, file formats, metadata schemas, and caching system
+- 🔍 **[Meeting Notes Diffing Guide](docs/file-organization.md#-meeting-notes-diffing--change-tracking-new-feature)** - Understanding content comparison and change tracking
+- ⚙️ **[Configuration Reference](docs/file-organization.md#-configuration-impact-on-organization)** - Advanced configuration options and environment variables
+
 ## 📋 Requirements
 
 - **Python 3.12+** (required for latest features and performance)
@@ -350,6 +356,8 @@ meeting-notes fetch --smart-filter --force  # Re-analyze all previous meetings
 ## 📁 File Organization
 
 Meeting notes are automatically organized in a clean, searchable structure:
+
+> 📋 **[Complete File Organization Documentation](docs/file-organization.md)** - Detailed specification of directory structure, file formats, metadata schemas, and content caching system.
 
 ```
 meeting_notes/
