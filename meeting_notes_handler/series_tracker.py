@@ -9,6 +9,9 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 import logging
 
+from .content_cache import MeetingContentCache
+from .content_hasher import ContentHasher
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +48,10 @@ class MeetingSeriesTracker:
         self.notes_dir = Path(notes_directory)
         self.series_registry_file = self.notes_dir / ".meeting_series_registry.json"
         self.series_registry = self._load_series_registry()
+        
+        # Initialize content cache and hasher
+        self.content_cache = MeetingContentCache(notes_directory)
+        self.content_hasher = ContentHasher()
         
         # Words to ignore when normalizing titles
         self.title_noise_words = {
@@ -396,3 +403,100 @@ class MeetingSeriesTracker:
             })
         
         return summary
+    
+    def store_meeting_content_signature(self, series_id: str, meeting_date: str, 
+                                      content: str) -> bool:
+        """
+        Store content signature for a meeting.
+        
+        Args:
+            series_id: Series identifier
+            meeting_date: Meeting date (YYYY-MM-DD format)
+            content: Full meeting content
+            
+        Returns:
+            True if successfully stored
+        """
+        try:
+            # Create content signature
+            signature = self.content_hasher.create_content_signature(
+                meeting_id=f"{series_id}_{meeting_date}",
+                content=content,
+                extracted_at=datetime.now().isoformat()
+            )
+            
+            # Store in cache
+            return self.content_cache.store_content_signature(
+                series_id, meeting_date, signature
+            )
+        except Exception as e:
+            logger.error(f"Error storing content signature: {e}")
+            return False
+    
+    def get_previous_meeting_signature(self, series_id: str, 
+                                     before_date: Optional[str] = None):
+        """
+        Get the most recent meeting signature before a given date.
+        
+        Args:
+            series_id: Series identifier
+            before_date: Date to search before (YYYY-MM-DD format)
+            
+        Returns:
+            ContentSignature or None
+        """
+        # Get recent signatures
+        signatures = self.content_cache.get_latest_signatures(series_id, limit=10)
+        
+        if not signatures:
+            return None
+        
+        if before_date:
+            # Filter signatures before the given date
+            before_dt = datetime.strptime(before_date, '%Y-%m-%d')
+            for sig in signatures:
+                # Extract date from meeting_id (format: seriesid_YYYY-MM-DD)
+                try:
+                    date_part = sig.meeting_id.split('_')[-1]
+                    sig_date = datetime.strptime(date_part, '%Y-%m-%d')
+                    if sig_date < before_dt:
+                        return sig
+                except (ValueError, IndexError):
+                    continue
+        
+        # Return most recent if no date filtering
+        return signatures[0] if signatures else None
+    
+    def has_content_changed(self, series_id: str, meeting_date: str, 
+                          new_content: str) -> Tuple[bool, Optional[float]]:
+        """
+        Check if meeting content has changed from previous meeting.
+        
+        Args:
+            series_id: Series identifier
+            meeting_date: Meeting date (YYYY-MM-DD format)
+            new_content: New meeting content
+            
+        Returns:
+            Tuple of (has_changed, similarity_percentage)
+        """
+        # Get previous meeting signature
+        prev_signature = self.get_previous_meeting_signature(series_id, meeting_date)
+        if not prev_signature:
+            # No previous meeting to compare
+            return True, None
+        
+        # Create signature for new content
+        new_signature = self.content_hasher.create_content_signature(
+            meeting_id=f"{series_id}_{meeting_date}",
+            content=new_content,
+            extracted_at=datetime.now().isoformat()
+        )
+        
+        # Quick check: if full content hashes match, content is identical
+        if prev_signature.full_content_hash == new_signature.full_content_hash:
+            return False, 100.0
+        
+        # For now, simple check - content has changed
+        # TODO: Use DiffEngine for detailed comparison
+        return True, None

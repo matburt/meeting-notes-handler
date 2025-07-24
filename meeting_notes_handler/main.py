@@ -11,6 +11,10 @@ from . import __version__
 from .config import Config
 from .google_meet_fetcher import GoogleMeetFetcher
 from .file_organizer import FileOrganizer
+from .series_tracker import MeetingSeriesTracker
+from .content_hasher import ContentHasher
+from .diff_engine import DiffEngine
+from .content_cache import MeetingContentCache
 
 def setup_logging(level: str = "INFO"):
     """Setup logging configuration."""
@@ -58,8 +62,9 @@ def cli(ctx, config, log_level, version):
 @click.option('--force', '-f', is_flag=True, default=False, help='Force re-fetch meetings even if already processed')
 @click.option('--gemini-only', '-g', is_flag=True, default=False, help='Only fetch Gemini notes and transcripts, skip other documents')
 @click.option('--smart-filter', '-s', is_flag=True, default=False, help='Apply smart content filtering to extract only new content from recurring meetings')
+@click.option('--diff-mode', is_flag=True, default=False, help='Only save new content compared to previous meetings')
 @click.pass_context
-def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter):
+def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter, diff_mode):
     """Fetch meeting notes from Google Calendar and Docs."""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
@@ -79,6 +84,8 @@ def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter):
         click.echo("🤖 GEMINI MODE - Only fetching Gemini notes and transcripts")
     if smart_filter:
         click.echo("🧠 SMART FILTER - Extracting only new content from recurring meetings")
+    if diff_mode:
+        click.echo("🔍 DIFF MODE - Only saving new content compared to previous meetings")
 
     try:
         fetcher = GoogleMeetFetcher(config)
@@ -91,7 +98,15 @@ def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter):
         click.echo("✅ Authentication successful")
         
         # Fetch and process meetings
-        results = fetcher.fetch_and_process_all(days_back=days, dry_run=dry_run, accepted_only=accepted, force_refetch=force, gemini_only=gemini_only, smart_filtering=smart_filter)
+        results = fetcher.fetch_and_process_all(
+            days_back=days, 
+            dry_run=dry_run, 
+            accepted_only=accepted, 
+            force_refetch=force, 
+            gemini_only=gemini_only, 
+            smart_filtering=smart_filter,
+            diff_mode=diff_mode
+        )
         
         if results['success']:
             click.echo(f"\n📊 Results:")
@@ -260,6 +275,219 @@ def config_show(ctx):
     click.echo(f"   Credentials: {'✅' if config.google_credentials_file.exists() else '❌'}")
     click.echo(f"   Token: {'✅' if config.google_token_file.exists() else '❌'}")
     click.echo(f"   Output dir: {'✅' if config.output_directory.exists() else '❌'}")
+
+@cli.command()
+@click.argument('meeting_name', required=False)
+@click.option('--series-id', help='Compare by series ID instead of meeting name')
+@click.option('--weeks', nargs=2, help='Compare specific weeks (YYYY-WW format)')
+@click.option('--last', type=int, default=2, help='Compare last N meetings (default: 2)')
+@click.option('--summary', is_flag=True, help='Show only summary, not detailed diff')
+@click.option('--output', help='Save diff to file')
+@click.pass_context
+def diff(ctx, meeting_name, series_id, weeks, last, summary, output):
+    """Compare meeting notes across different instances."""
+    config = ctx.obj['config']
+    logger = logging.getLogger(__name__)
+    
+    if not meeting_name and not series_id:
+        click.echo("❌ Please provide either a meeting name or --series-id", err=True)
+        return
+    
+    try:
+        # Initialize components
+        tracker = MeetingSeriesTracker(config.output_directory)
+        cache = MeetingContentCache(config.output_directory)
+        hasher = ContentHasher()
+        diff_engine = DiffEngine()
+        
+        # Find the series
+        if series_id:
+            target_series_id = series_id
+        else:
+            # Search for series by meeting name
+            all_series = tracker.get_all_series()
+            matching_series = []
+            
+            for sid, series_data in all_series.items():
+                series_title = series_data.get('normalized_title', '')
+                if meeting_name.lower() in series_title.lower():
+                    matching_series.append((sid, series_data))
+            
+            if not matching_series:
+                click.echo(f"❌ No meeting series found matching '{meeting_name}'", err=True)
+                return
+            elif len(matching_series) > 1:
+                click.echo("🔍 Multiple matching series found:")
+                for sid, data in matching_series:
+                    click.echo(f"   {sid}: {data.get('normalized_title', 'Unknown')}")
+                click.echo("Please use --series-id to specify")
+                return
+            
+            target_series_id = matching_series[0][0]
+        
+        # Get signatures to compare
+        if weeks:
+            # Compare specific weeks
+            click.echo(f"📊 Comparing weeks {weeks[0]} and {weeks[1]}...")
+            # TODO: Implement week-based comparison
+            click.echo("Week-based comparison not yet implemented")
+            return
+        else:
+            # Get last N meetings
+            signatures = cache.get_latest_signatures(target_series_id, limit=last)
+            
+            if len(signatures) < 2:
+                click.echo(f"❌ Not enough meetings to compare (found {len(signatures)})", err=True)
+                return
+            
+            # Compare most recent two
+            old_sig = signatures[1]
+            new_sig = signatures[0]
+        
+        # Perform diff
+        meeting_diff = diff_engine.compare_meetings(old_sig, new_sig)
+        
+        # Display results
+        if summary:
+            click.echo(diff_engine.format_diff_summary(meeting_diff))
+        else:
+            # Full diff display
+            click.echo(diff_engine.format_diff_summary(meeting_diff))
+            click.echo("\n📋 Detailed Changes:")
+            
+            for section_change in meeting_diff.section_changes:
+                if section_change.change_type.value == "added":
+                    click.echo(f"\n✅ New Section: [{section_change.new_section.header}]")
+                    for para in section_change.new_section.paragraphs:
+                        click.echo(f"   + {para.preview}")
+                elif section_change.change_type.value == "removed":
+                    click.echo(f"\n❌ Removed Section: [{section_change.old_section.header}]")
+                elif section_change.change_type.value == "modified":
+                    click.echo(f"\n🔄 Modified Section: [{section_change.old_section.header}]")
+                    for para_change in section_change.paragraph_changes:
+                        if para_change.change_type.value == "added":
+                            click.echo(f"   + {para_change.new_paragraph.preview}")
+                        elif para_change.change_type.value == "removed":
+                            click.echo(f"   - {para_change.old_paragraph.preview}")
+                        elif para_change.change_type.value == "modified":
+                            click.echo(f"   ~ {para_change.old_paragraph.preview}")
+                            click.echo(f"     → {para_change.new_paragraph.preview}")
+            
+            if meeting_diff.moved_paragraphs:
+                click.echo("\n↔️  Moved Content:")
+                for move in meeting_diff.moved_paragraphs:
+                    click.echo(f"   {move.old_section} → {move.new_section}: {move.old_paragraph.preview}")
+        
+        # Save to file if requested
+        if output:
+            # TODO: Implement file output
+            click.echo(f"Output to file not yet implemented: {output}")
+            
+    except Exception as e:
+        logger.error(f"Error during diff operation: {e}")
+        click.echo(f"❌ Error: {e}", err=True)
+
+@cli.command()
+@click.argument('meeting_name', required=False)
+@click.option('--series-id', help='Show changelog by series ID')
+@click.option('--last', type=int, default=4, help='Show last N meetings (default: 4)')
+@click.option('--since', help='Show changes since date (YYYY-MM-DD)')
+@click.option('--all-series', is_flag=True, help='Show changes for all series')
+@click.option('--format', type=click.Choice(['text', 'markdown', 'json']), default='text', help='Output format')
+@click.pass_context
+def changelog(ctx, meeting_name, series_id, last, since, all_series, format):
+    """Show changelog for recurring meetings."""
+    config = ctx.obj['config']
+    logger = logging.getLogger(__name__)
+    
+    if not any([meeting_name, series_id, all_series]):
+        click.echo("❌ Please provide meeting name, --series-id, or --all-series", err=True)
+        return
+    
+    try:
+        # Initialize components
+        tracker = MeetingSeriesTracker(config.output_directory)
+        cache = MeetingContentCache(config.output_directory)
+        diff_engine = DiffEngine()
+        
+        # Determine which series to process
+        series_to_process = []
+        
+        if all_series:
+            series_to_process = list(tracker.get_all_series().keys())
+        elif series_id:
+            series_to_process = [series_id]
+        else:
+            # Find by meeting name
+            all_series_data = tracker.get_all_series()
+            for sid, series_data in all_series_data.items():
+                if meeting_name.lower() in series_data.get('normalized_title', '').lower():
+                    series_to_process.append(sid)
+        
+        if not series_to_process:
+            click.echo(f"❌ No meeting series found", err=True)
+            return
+        
+        # Process each series
+        for sid in series_to_process:
+            series_data = tracker.series_registry.get(sid, {})
+            click.echo(f"\n📅 Changelog for: {series_data.get('normalized_title', sid)}")
+            click.echo(f"   Series ID: {sid}")
+            
+            # Get signatures
+            if since:
+                # TODO: Implement date-based filtering
+                signatures = cache.get_latest_signatures(sid, limit=20)
+            else:
+                signatures = cache.get_latest_signatures(sid, limit=last)
+            
+            if len(signatures) < 2:
+                click.echo("   ℹ️  Not enough meetings for changelog")
+                continue
+            
+            # Show changes between consecutive meetings
+            for i in range(len(signatures) - 1):
+                old_sig = signatures[i + 1]
+                new_sig = signatures[i]
+                
+                # Extract dates from meeting IDs
+                old_date = old_sig.meeting_id.split('_')[-1]
+                new_date = new_sig.meeting_id.split('_')[-1]
+                
+                meeting_diff = diff_engine.compare_meetings(old_sig, new_sig)
+                summary = meeting_diff.summary
+                
+                if format == 'markdown':
+                    click.echo(f"\n### {new_date} (from {old_date})")
+                    if summary.total_paragraphs_added > 0:
+                        click.echo(f"- ✅ Added: {summary.total_paragraphs_added} paragraphs ({summary.total_words_added} words)")
+                    if summary.total_paragraphs_removed > 0:
+                        click.echo(f"- ❌ Removed: {summary.total_paragraphs_removed} paragraphs ({summary.total_words_removed} words)")
+                    if summary.total_paragraphs_modified > 0:
+                        click.echo(f"- 🔄 Modified: {summary.total_paragraphs_modified} paragraphs")
+                    if summary.total_paragraphs_moved > 0:
+                        click.echo(f"- ↔️  Moved: {summary.total_paragraphs_moved} paragraphs")
+                    click.echo(f"- 📈 Similarity: {summary.similarity_percentage:.1f}%")
+                else:
+                    click.echo(f"\n   📝 {new_date} ← {old_date}")
+                    changes = []
+                    if summary.total_paragraphs_added > 0:
+                        changes.append(f"+{summary.total_paragraphs_added}")
+                    if summary.total_paragraphs_removed > 0:
+                        changes.append(f"-{summary.total_paragraphs_removed}")
+                    if summary.total_paragraphs_modified > 0:
+                        changes.append(f"~{summary.total_paragraphs_modified}")
+                    if summary.total_paragraphs_moved > 0:
+                        changes.append(f"↔{summary.total_paragraphs_moved}")
+                    
+                    if changes:
+                        click.echo(f"      Changes: {' '.join(changes)} | Similarity: {summary.similarity_percentage:.1f}%")
+                    else:
+                        click.echo(f"      No changes detected")
+        
+    except Exception as e:
+        logger.error(f"Error during changelog operation: {e}")
+        click.echo(f"❌ Error: {e}", err=True)
 
 if __name__ == '__main__':
     cli()

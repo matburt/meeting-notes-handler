@@ -118,6 +118,8 @@ meeting-notes fetch --help
 |---------|-------------|
 | `setup` | Interactive setup and authentication testing |
 | `fetch` | Fetch and process meeting notes (main command) |
+| `diff` | **NEW**: Compare meeting notes across different instances |
+| `changelog` | **NEW**: Show changelog for recurring meetings |
 | `list-weeks` | Show available weeks with meeting notes |
 | `list-meetings WEEK` | Show meetings in a specific week (e.g., 2024-W03) |
 | `config-show` | Display current configuration settings |
@@ -129,10 +131,47 @@ meeting-notes fetch --help
 | `--days N` | `-d` | Number of days back to search (default: 7) |
 | `--accepted` | | Only fetch meetings you've accepted or are tentative for |
 | `--gemini-only` | `-g` | Only fetch Gemini notes and transcripts, skip other documents |
-| `--smart-filter` | `-s` | **NEW**: Apply smart content filtering to extract only new content from recurring meetings |
+| `--smart-filter` | `-s` | Apply smart content filtering to extract only new content from recurring meetings |
+| `--diff-mode` | | **NEW**: Only save new content compared to previous meetings |
 | `--dry-run` | | Preview what would be fetched without saving files |
 | `--force` | `-f` | Force re-fetch meetings even if already processed |
 | `--week YYYY-WW` | `-w` | Fetch specific week (e.g., 2024-W03) |
+
+### New Diff and Changelog Commands
+
+#### Diff Command
+Compare meeting notes across different instances to see what has changed:
+
+```bash
+# Compare last 2 meetings in a series by name
+meeting-notes diff "Sprint Planning"
+
+# Compare last 3 meetings by series ID
+meeting-notes diff --series-id abc123 --last 3
+
+# Show only summary (no detailed changes)
+meeting-notes diff "Team Standup" --summary
+
+# Compare specific weeks (planned feature)
+meeting-notes diff "Sprint Demo" --weeks 2024-W29 2024-W30
+```
+
+#### Changelog Command
+Show a changelog of changes for recurring meetings:
+
+```bash
+# Show changelog for last 4 meetings
+meeting-notes changelog "Team Standup"
+
+# Show changes for all series since a date
+meeting-notes changelog --all-series --since 2024-07-01
+
+# Export changelog in markdown format
+meeting-notes changelog "Sprint Planning" --format markdown
+
+# Show changes for specific series by ID
+meeting-notes changelog --series-id abc123 --last 6
+```
 
 ### Example Usage
 
@@ -162,6 +201,9 @@ uv run meeting-notes fetch --gemini-only --accepted --days 14
 
 # Use smart filtering with Gemini-only for optimal LLM processing
 uv run meeting-notes fetch --smart-filter --gemini-only --accepted
+
+# NEW: Only save meetings that have changed content (diff mode)
+uv run meeting-notes fetch --diff-mode --accepted
 
 # List all available weeks
 uv run meeting-notes list-weeks
@@ -206,6 +248,62 @@ meeting-notes fetch --gemini-only --days 30
 # Combine with other filters
 meeting-notes fetch --gemini-only --accepted --force
 ```
+
+## 🔍 Meeting Notes Diffing & Change Tracking (New Feature)
+
+The tool now supports advanced diffing functionality to track changes in recurring meetings and only save new content.
+
+### Key Features:
+- **Content Hashing**: Automatically generates content signatures for meetings
+- **Series Tracking**: Identifies recurring meetings across weeks
+- **Smart Diffing**: Compares meeting content at paragraph and section levels
+- **Change Detection**: Shows what's added, removed, modified, or moved
+- **Diff Mode**: Only saves meetings with changed content
+
+### Diff Mode (`--diff-mode`)
+Only save meetings that have changed content compared to previous instances:
+
+```bash
+# Only save meetings with new content
+meeting-notes fetch --diff-mode
+
+# Combine with other filters for efficiency  
+meeting-notes fetch --diff-mode --gemini-only --accepted
+```
+
+### Compare Meetings
+Compare specific meetings to see what changed:
+
+```bash
+# Compare last 2 meetings by name
+meeting-notes diff "Sprint Planning"
+
+# Compare by series ID with more history
+meeting-notes diff --series-id series_123 --last 3
+
+# Show summary only
+meeting-notes diff "Team Standup" --summary
+```
+
+### Track Changes Over Time
+Generate changelogs for recurring meetings:
+
+```bash
+# Show recent changes for a specific meeting
+meeting-notes changelog "Weekly Status"
+
+# See all changes across series
+meeting-notes changelog --all-series --last 2
+
+# Export as markdown
+meeting-notes changelog "Sprint Review" --format markdown
+```
+
+### Benefits:
+- **Storage Efficiency**: Skip saving duplicate content
+- **Change Awareness**: Easily see what's new in recurring meetings
+- **Content Evolution**: Track how meeting content changes over time
+- **Integration Ready**: Perfect for automated processing of new content only
 
 ## 🧠 Smart Content Filtering (New Feature)
 

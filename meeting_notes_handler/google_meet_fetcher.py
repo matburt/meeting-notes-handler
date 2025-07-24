@@ -16,6 +16,7 @@ from .config import Config
 from .docs_converter import DocsConverter
 from .file_organizer import FileOrganizer
 from .smart_extractor import SmartContentExtractor
+from .series_tracker import MeetingSeriesTracker
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class GoogleMeetFetcher:
         self.calendar_service = None
         self.docs_converter = None
         self.file_organizer = FileOrganizer(config.output_directory)
+        self.series_tracker = MeetingSeriesTracker(config.output_directory)
         self.smart_extractor = SmartContentExtractor(config.output_directory)
         
         # Rate limiting configuration (same as DocsConverter)
@@ -440,7 +442,7 @@ class GoogleMeetFetcher:
         return list(set(docs_links))  # Remove duplicates
     
     def process_meeting_notes(self, meeting: Dict[str, Any], save_to_file: bool = True, 
-                             smart_filtering: bool = False) -> Dict[str, Any]:
+                             smart_filtering: bool = False, diff_mode: bool = False) -> Dict[str, Any]:
         """Process meeting notes by fetching and converting associated docs.
         
         Args:
@@ -593,7 +595,7 @@ class GoogleMeetFetcher:
             
             if save_to_file and result['notes']:
                 try:
-                    self._save_meeting_notes(meeting, result['notes'])
+                    self._save_meeting_notes(meeting, result['notes'], diff_mode=diff_mode)
                     logger.info(f"Saved notes for meeting: {meeting['title']}")
                 except Exception as e:
                     error_msg = f"Error saving meeting notes: {e}"
@@ -602,7 +604,7 @@ class GoogleMeetFetcher:
         
         return result
     
-    def _save_meeting_notes(self, meeting: Dict[str, Any], notes: List[Dict[str, Any]]) -> None:
+    def _save_meeting_notes(self, meeting: Dict[str, Any], notes: List[Dict[str, Any]], diff_mode: bool = False) -> None:
         """Save meeting notes to organized file structure.
         
         Args:
@@ -648,6 +650,30 @@ class GoogleMeetFetcher:
             'docs_links': [note['doc_url'] for note in notes]
         }
         
+        # Handle diff mode
+        if diff_mode:
+            # Identify or create meeting series
+            series_id = self.series_tracker.identify_series(meeting)
+            if not series_id:
+                series_id = self.series_tracker.create_new_series(meeting)
+            
+            # Check if content has changed from previous meeting
+            meeting_date = meeting['start_time'].strftime('%Y-%m-%d')
+            has_changed, similarity = self.series_tracker.has_content_changed(
+                series_id, meeting_date, full_content
+            )
+            
+            if not has_changed and similarity is not None:
+                logger.info(f"Content unchanged for meeting {meeting['title']} (similarity: {similarity:.1f}%)")
+                return  # Skip saving if content hasn't changed
+            
+            logger.info(f"Content changed for meeting {meeting['title']}, saving...")
+            
+            # Store content signature for future comparisons
+            self.series_tracker.store_meeting_content_signature(
+                series_id, meeting_date, full_content
+            )
+        
         # Save to file
         self.file_organizer.save_meeting_note(
             content=full_content,
@@ -655,13 +681,28 @@ class GoogleMeetFetcher:
             title=meeting['title'],
             metadata=metadata
         )
+        
+        # Always store content signature for series tracking (even if not in diff mode)
+        if not diff_mode:
+            try:
+                series_id = self.series_tracker.identify_series(meeting)
+                if not series_id:
+                    series_id = self.series_tracker.create_new_series(meeting)
+                
+                meeting_date = meeting['start_time'].strftime('%Y-%m-%d')
+                self.series_tracker.store_meeting_content_signature(
+                    series_id, meeting_date, full_content
+                )
+            except Exception as e:
+                logger.warning(f"Failed to store content signature: {e}")
     
     def fetch_and_process_all(self, days_back: Optional[int] = None, 
                              dry_run: bool = False,
                              accepted_only: bool = False,
                              force_refetch: bool = False,
                              gemini_only: bool = False,
-                             smart_filtering: bool = False) -> Dict[str, Any]:
+                             smart_filtering: bool = False,
+                             diff_mode: bool = False) -> Dict[str, Any]:
         """Fetch and process all recent meeting notes.
         
         Args:
@@ -671,6 +712,7 @@ class GoogleMeetFetcher:
             force_refetch: If True, reprocess meetings even if already processed.
             gemini_only: If True, only fetch Gemini notes and transcripts.
             smart_filtering: If True, apply smart content filtering for new content only.
+            diff_mode: If True, only save new content compared to previous meetings.
             
         Returns:
             Dictionary with processing results.
@@ -712,7 +754,7 @@ class GoogleMeetFetcher:
                         continue
                 
                 logger.info(f"Processing meeting: {meeting['title']}")
-                process_result = self.process_meeting_notes(meeting, save_to_file=not dry_run, smart_filtering=smart_filtering)
+                process_result = self.process_meeting_notes(meeting, save_to_file=not dry_run, smart_filtering=smart_filtering, diff_mode=diff_mode)
                 
                 results['meetings_processed'] += 1
                 
