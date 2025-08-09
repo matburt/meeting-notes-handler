@@ -59,15 +59,21 @@ def cli(ctx, config, log_level, version):
 @click.option('--dry-run', is_flag=True, help='Preview without saving files')
 @click.option('--week', '-w', help='Specific week to fetch (YYYY-WW format)')
 @click.option('--accepted', is_flag=True, default=False, help='Only fetch notes from meetings you accepted or are tentative for.')
+@click.option('--declined', is_flag=True, default=False, help='Only fetch notes from meetings you declined.')
 @click.option('--force', '-f', is_flag=True, default=False, help='Force re-fetch meetings even if already processed')
 @click.option('--gemini-only', '-g', is_flag=True, default=False, help='Only fetch Gemini notes and transcripts, skip other documents')
 @click.option('--smart-filter', '-s', is_flag=True, default=False, help='Apply smart content filtering to extract only new content from recurring meetings')
 @click.option('--diff-mode', is_flag=True, default=False, help='Only save new content compared to previous meetings')
 @click.pass_context
-def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter, diff_mode):
+def fetch(ctx, days, dry_run, week, accepted, declined, force, gemini_only, smart_filter, diff_mode):
     """Fetch meeting notes from Google Calendar and Docs."""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
+    
+    # Validate mutually exclusive options
+    if accepted and declined:
+        click.echo("❌ Error: --accepted and --declined options are mutually exclusive", err=True)
+        sys.exit(1)
     
     if week:
         click.echo(f"Week-specific fetching not yet implemented: {week}")
@@ -78,6 +84,8 @@ def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter, 
         click.echo("📋 DRY RUN - No files will be saved")
     if accepted:
         click.echo("✅ Filtering for accepted meetings only")
+    if declined:
+        click.echo("❌ Filtering for declined meetings only")
     if force:
         click.echo("🔄 FORCE MODE - Will re-fetch already processed meetings")
     if gemini_only:
@@ -102,6 +110,7 @@ def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter, 
             days_back=days, 
             dry_run=dry_run, 
             accepted_only=accepted, 
+            declined_only=declined,
             force_refetch=force, 
             gemini_only=gemini_only, 
             smart_filtering=smart_filter,
