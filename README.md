@@ -136,12 +136,15 @@ meeting-notes fetch --help
 |--------|-------|-------------|
 | `--days N` | `-d` | Number of days back to search (default: 7) |
 | `--accepted` | | Only fetch meetings you've accepted or are tentative for |
+| `--declined` | | Only fetch meetings you've declined (mutually exclusive with --accepted) |
 | `--gemini-only` | `-g` | Only fetch Gemini notes and transcripts, skip other documents |
 | `--smart-filter` | `-s` | Apply smart content filtering to extract only new content from recurring meetings |
 | `--diff-mode` | | **NEW**: Only save new content compared to previous meetings |
 | `--dry-run` | | Preview what would be fetched without saving files |
 | `--force` | `-f` | Force re-fetch meetings even if already processed |
 | `--week YYYY-WW` | `-w` | Fetch specific week (e.g., 2024-W03) |
+
+**Note**: The `--accepted` and `--declined` options are mutually exclusive - you cannot use both at the same time. If neither is specified, all meetings (regardless of response status) will be fetched.
 
 ### New Diff and Changelog Commands
 
@@ -189,6 +192,9 @@ uv run meeting-notes fetch
 
 # Fetch from last 14 days, only accepted meetings
 uv run meeting-notes fetch --days 14 --accepted
+
+# Fetch from last 7 days, only declined meetings
+uv run meeting-notes fetch --days 7 --declined
 
 # Only fetch Gemini-generated notes and transcripts
 uv run meeting-notes fetch --gemini-only
