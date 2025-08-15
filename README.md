@@ -124,6 +124,7 @@ meeting-notes fetch --help
 |---------|-------------|
 | `setup` | Interactive setup and authentication testing |
 | `fetch` | Fetch and process meeting notes (main command) |
+| `analyze` | **NEW**: AI-powered analysis of meeting notes with LLM insights |
 | `diff` | **NEW**: Compare meeting notes across different instances |
 | `changelog` | **NEW**: Show changelog for recurring meetings |
 | `list-weeks` | Show available weeks with meeting notes |
@@ -178,6 +179,47 @@ meeting-notes changelog "Sprint Planning" --format markdown
 # Show changes for specific series by ID
 meeting-notes changelog --series-id abc123 --last 6
 ```
+
+### New Analyze Command
+Leverage AI to extract insights and summaries from your meeting notes:
+
+```bash
+# Weekly summary of most important points
+meeting-notes analyze --week 2024-W33
+
+# Analyze last 7 days for key decisions and themes  
+meeting-notes analyze --days 7
+
+# Personal analysis - find your action items and discussions
+meeting-notes analyze --personal --days 30
+meeting-notes analyze --personal --week 2024-W33
+
+# Use different LLM providers
+meeting-notes analyze --provider openai --week 2024-W33
+meeting-notes analyze --provider anthropic --model claude-3-opus
+meeting-notes analyze --provider gemini --days 14
+meeting-notes analyze --provider openrouter --model "meta-llama/llama-3-70b"
+
+# Save analysis results to file
+meeting-notes analyze --week 2024-W33 --output weekly-summary.json
+meeting-notes analyze --personal --output my-actions.json
+
+# Adjust relevance threshold for personal analysis
+meeting-notes analyze --personal --min-relevance 0.5 --days 14
+```
+
+#### Analyze Command Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--days N` | `-d` | Number of days back to analyze (default: 7 for weekly, 30 for personal) |
+| `--week YYYY-WW` | `-w` | Analyze specific week (e.g., 2024-W33) |
+| `--personal` | `-p` | Focus on personal action items and discussions |
+| `--provider` | | LLM provider: openai, anthropic, gemini, openrouter |
+| `--model` | | Specific model to use (overrides config) |
+| `--output` | `-o` | Save analysis results to file |
+| `--format` | | Output format: json, markdown (default: markdown) |
+| `--min-relevance` | | Minimum relevance score for personal analysis (0.0-1.0, default: 0.3) |
 
 ### Example Usage
 
@@ -254,6 +296,190 @@ meeting-notes fetch --gemini-only --days 30
 # Combine with other filters
 meeting-notes fetch --gemini-only --accepted --force
 ```
+
+## 🧠 AI-Powered Meeting Analysis (New Feature)
+
+Transform your meeting notes into actionable insights using state-of-the-art LLM analysis. Extract key decisions, personal action items, and important themes automatically.
+
+### Key Features:
+- **Weekly Summaries**: Identify the most important decisions and themes from a week's meetings
+- **Personal Analysis**: Find meetings where you had action items or participated in discussions
+- **Multi-Provider Support**: Works with OpenAI, Anthropic, Gemini, and OpenRouter
+- **Smart Relevance Scoring**: Automatically identifies personally relevant content
+- **Flexible Output**: Save results as JSON or view formatted summaries
+
+### Quick Start
+
+#### 1. Set up API Key
+```bash
+# Choose your preferred provider
+export OPENAI_API_KEY=your_key_here
+# OR
+export ANTHROPIC_API_KEY=your_key_here
+# OR 
+export GEMINI_API_KEY=your_key_here
+# OR
+export OPENROUTER_API_KEY=your_key_here
+```
+
+#### 2. Configure User Context (for personal analysis)
+```yaml
+# In your config.yaml
+analysis:
+  user_context:
+    user_name: "Your Name"
+    user_aliases: ["@yourname", "your.email@company.com"]
+```
+
+#### 3. Run Analysis
+```bash
+# Weekly summary - most important decisions and themes
+meeting-notes analyze --week 2024-W33
+
+# Personal analysis - your action items and discussions
+meeting-notes analyze --personal --days 30
+```
+
+### Analysis Types
+
+#### Weekly Summary Analysis
+Extracts the most important information from a set of meetings:
+
+**What it identifies:**
+- 🎯 **Key Decisions**: Important decisions that impact future work
+- 📋 **Major Themes**: Recurring topics across multiple meetings  
+- ✅ **Critical Action Items**: High-priority tasks with owners and deadlines
+- ⚠️ **Notable Risks**: Potential blockers or concerns raised
+
+**Example Output:**
+```
+📊 Weekly Analysis Results for 2024-W33:
+   📈 Meetings analyzed: 5
+
+🎯 Most Important Decisions:
+   1. OAuth 2.0 Implementation - Decided to use Auth0 for mobile apps
+   2. Database Migration - Approved PostgreSQL migration for Q2
+   3. Security Review Process - New mandatory review for external providers
+
+📋 Key Themes:
+   • Authentication system overhaul (3 meetings)
+   • Performance optimization discussions (2 meetings)
+   • Q2 planning and resource allocation
+
+✅ Critical Action Items:
+   [HIGH] John: Complete OAuth integration by Friday
+   [HIGH] Sarah: Security audit documentation by Wednesday
+   [MEDIUM] Team: Prepare client demo for Tuesday
+```
+
+#### Personal Analysis
+Finds meetings where you had involvement or relevance:
+
+**What it identifies:**
+- 📋 **Your Action Items**: Tasks specifically assigned to you
+- 💬 **Discussions You Led**: Topics where you were consulted or presented
+- 🎯 **Decisions Affecting You**: Changes that impact your work
+- 🔍 **Relevance Scoring**: Automatically filters for personally relevant content
+
+**Example Output:**
+```
+📊 Personal Analysis Results (last 30 days):
+   📈 Meetings analyzed: 12
+   🎯 Relevant meetings: 7
+   ✅ Action items assigned: 4
+   💬 Discussions involved: 8
+
+📋 Your Action Items:
+   [HIGH] Review authentication flow documentation - Due Thursday
+   [MEDIUM] Update API endpoints for new auth system - Due next Monday
+   [LOW] Participate in security review meeting - Wednesday 2pm
+
+📝 Meetings with your involvement:
+   • Sprint Planning (4/8): Assigned to API security review
+   • Architecture Review (4/10): Your expertise needed for OAuth
+   • Team Standup (4/11): Blocker discussion about your PR
+```
+
+### LLM Provider Configuration
+
+#### OpenAI (Default)
+```yaml
+analysis:
+  provider: "openai"
+  openai:
+    api_key_env: "OPENAI_API_KEY"
+    model: "gpt-4-turbo-preview"
+    temperature: 0.3
+    max_tokens: 4000
+```
+
+#### Anthropic (Claude)
+```yaml
+analysis:
+  provider: "anthropic"
+  anthropic:
+    api_key_env: "ANTHROPIC_API_KEY"
+    model: "claude-3-opus-20240229"
+    temperature: 0.3
+    max_tokens: 4000
+```
+
+#### Google Gemini
+```yaml
+analysis:
+  provider: "gemini"
+  gemini:
+    api_key_env: "GEMINI_API_KEY"
+    model: "gemini-pro"
+    temperature: 0.3
+    max_tokens: 4000
+```
+
+#### OpenRouter (Access to Multiple Models)
+```yaml
+analysis:
+  provider: "openrouter"
+  openrouter:
+    api_key_env: "OPENROUTER_API_KEY"
+    model: "anthropic/claude-3-opus"
+    base_url: "https://openrouter.ai/api/v1"
+    temperature: 0.3
+    max_tokens: 4000
+```
+
+### Advanced Usage
+
+#### Cost Optimization
+- **Start with weekly summaries** (fewer API calls than personal analysis)
+- **Use personal analysis with higher relevance thresholds** (`--min-relevance 0.5`)
+- **Analyze specific weeks** instead of broad date ranges
+- **Save results to avoid re-analysis** (`--output results.json`)
+
+#### Integration Tips
+```bash
+# Weekly digest automation
+meeting-notes analyze --week $(date +%Y-W%V) --output weekly-digest.json
+
+# Personal action item tracking
+meeting-notes analyze --personal --days 7 --min-relevance 0.6 --output my-actions.json
+
+# Multi-provider comparison
+meeting-notes analyze --provider openai --week 2024-W33 --output openai-analysis.json
+meeting-notes analyze --provider claude --week 2024-W33 --output claude-analysis.json
+```
+
+#### Error Handling
+- **Missing API Key**: Clear instructions provided for each provider
+- **Rate Limiting**: Automatic retry with exponential backoff
+- **Content Too Large**: Automatic chunking for large meeting sets
+- **Provider Failures**: Graceful error messages with suggested fixes
+
+### Benefits:
+- **Time Savings**: Instantly extract key information from hours of meetings
+- **Never Miss Action Items**: Automatic detection of your responsibilities
+- **Pattern Recognition**: Identify recurring themes and decision trends
+- **Multi-Provider Flexibility**: Choose the best LLM for your needs and budget
+- **Privacy Focused**: All analysis runs on your chosen provider - no data stored externally
 
 ## 🔍 Meeting Notes Diffing & Change Tracking (New Feature)
 
@@ -425,14 +651,62 @@ docs:
   use_native_export: true      # Use Google's native Markdown export
   fallback_to_manual: true     # Fallback if native export fails
 
+# NEW: AI Analysis Configuration
+analysis:
+  provider: "openai"           # openai, anthropic, gemini, openrouter
+  templates_dir: "./meeting_notes_handler/templates"
+  
+  # Provider-specific settings
+  openai:
+    api_key_env: "OPENAI_API_KEY"
+    model: "gpt-4-turbo-preview"
+    temperature: 0.3
+    max_tokens: 4000
+  
+  anthropic:
+    api_key_env: "ANTHROPIC_API_KEY"
+    model: "claude-3-opus-20240229"
+    temperature: 0.3
+    max_tokens: 4000
+  
+  gemini:
+    api_key_env: "GEMINI_API_KEY"
+    model: "gemini-pro"
+    temperature: 0.3
+    max_tokens: 4000
+  
+  openrouter:
+    api_key_env: "OPENROUTER_API_KEY"
+    model: "anthropic/claude-3-opus"
+    base_url: "https://openrouter.ai/api/v1"
+    temperature: 0.3
+    max_tokens: 4000
+  
+  # User context for personal analysis
+  user_context:
+    user_name: "Your Name"
+    user_aliases: ["@yourname", "your.email@company.com"]
+
 logging:
   level: "INFO"
 ```
 
 ### Environment Variables
 Override configuration with environment variables:
+
+**Google API Settings:**
 - `GOOGLE_CREDENTIALS_FILE` - Path to OAuth2 credentials
 - `GOOGLE_TOKEN_FILE` - Path to store authentication token
+
+**Analysis Settings:**
+- `LLM_PROVIDER` - Default LLM provider (openai, anthropic, gemini, openrouter)
+- `OPENAI_API_KEY` - OpenAI API key for GPT models
+- `ANTHROPIC_API_KEY` - Anthropic API key for Claude models
+- `GEMINI_API_KEY` - Google Gemini API key
+- `OPENROUTER_API_KEY` - OpenRouter API key for multiple model access
+- `USER_NAME` - Your name for personal analysis
+
+**General Settings:**
 - `LOG_LEVEL` - Logging level (DEBUG, INFO, WARNING, ERROR)
 - `OUTPUT_DIRECTORY` - Where to save meeting notes
 
@@ -704,18 +978,20 @@ pre-commit run --all-files
 - **Section-level content comparison** and diffing
 - **LLM-optimized output** with content reduction
 
-### Phase 2: Advanced Analysis and Intelligence
-- **AI-powered summarization** of meeting content
-- **Action item extraction** and tracking
-- **Attendee analysis** and meeting patterns
-- **Topic clustering** across meetings
-- **Meeting effectiveness metrics**
+### ✅ Phase 2: AI-Powered Analysis (COMPLETED)
+- **Multi-provider LLM integration** (OpenAI, Anthropic, Gemini, OpenRouter)
+- **Weekly summary analysis** with key decisions and themes
+- **Personal action item extraction** and discussion tracking
+- **Smart relevance scoring** for personalized insights
+- **Flexible output formats** (JSON, Markdown)
 
 ### Phase 3: Enhanced Intelligence
-- **Cross-meeting analysis** and trend detection
+- **Cross-meeting pattern analysis** and trend detection
+- **Action item tracking** with deadline monitoring
 - **Meeting series insights** and optimization suggestions
 - **Content similarity analysis** across different meeting series
-- **Automated follow-up tracking** based on filtered content
+- **Attendee analysis** and collaboration patterns
+- **Topic clustering** and meeting effectiveness metrics
 
 ### Phase 4: Integration and Automation
 - **Slack/Teams integration** for automatic sharing
