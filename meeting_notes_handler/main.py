@@ -502,8 +502,15 @@ def changelog(ctx, meeting_name, series_id, last, since, all_series, format):
               help='Output format')
 @click.option('--min-relevance', type=float, default=0.3, 
               help='Minimum relevance score for personal analysis (0.0-1.0)')
+@click.option('--content-filter', type=click.Choice(['gemini-only', 'no-transcripts', 'all']), 
+              help='Content filtering mode (overrides config default)')
+@click.option('--include-docs', is_flag=True, 
+              help='Include embedded documents (when using no-transcripts filter)')
+@click.option('--show-token-usage', is_flag=True, 
+              help='Show token usage and cost estimates before processing')
 @click.pass_context
-def analyze(ctx, days, week, personal, provider, model, output, format, min_relevance):
+def analyze(ctx, days, week, personal, provider, model, output, format, min_relevance, 
+           content_filter, include_docs, show_token_usage):
     """Analyze meeting notes using LLM to generate insights and summaries."""
     import asyncio
     from .analyzers import create_analyzer, WeeklyAnalyzer, PersonalAnalyzer
@@ -544,9 +551,16 @@ def analyze(ctx, days, week, personal, provider, model, output, format, min_rele
         if aliases_input.strip():
             user_context['user_aliases'] = [alias.strip() for alias in aliases_input.split(',')]
     
+    # Determine content filtering settings
+    analysis_content_filter = content_filter or config.content_filter
+    analysis_include_docs = include_docs or config.include_embedded_docs
+    
     click.echo("🧠 Analyzing meeting notes...")
     click.echo(f"   Provider: {analysis_provider}")
     click.echo(f"   Model: {provider_config.get('model', 'default')}")
+    click.echo(f"   Content filter: {analysis_content_filter}")
+    if analysis_content_filter == 'no-transcripts':
+        click.echo(f"   Include docs: {'yes' if analysis_include_docs else 'no'}")
     
     if personal:
         click.echo(f"   Focus: Personal analysis for {user_context.get('user_name', 'Unknown')}")
@@ -558,10 +572,60 @@ def analyze(ctx, days, week, personal, provider, model, output, format, min_rele
         llm_analyzer = create_analyzer(analysis_provider, provider_config)
         templates_dir = str(config.templates_directory)
         
+        # Show token usage if requested
+        if show_token_usage:
+            from .analyzers.content_extractor import MeetingContentExtractor
+            extractor = MeetingContentExtractor()
+            
+            # Determine which directory to analyze
+            if week:
+                analysis_dir = config.output_directory / week
+                if not analysis_dir.exists():
+                    click.echo(f"❌ Week directory not found: {analysis_dir}", err=True)
+                    return
+                analysis_path = str(analysis_dir)
+            else:
+                analysis_path = str(config.output_directory)
+            
+            click.echo("\n📊 Analyzing token usage...")
+            
+            # Get content from meetings
+            results = extractor.extract_week_content(
+                analysis_path, 
+                analysis_content_filter, 
+                analysis_include_docs
+            )
+            
+            if results:
+                total_content = "\n".join([content for _, content in results])
+                total_tokens = extractor.count_tokens(total_content)
+                
+                # Estimate cost (using GPT-4 pricing as example)
+                gpt4_pricing = {'input': 0.03, 'output': 0.06}  # per 1K tokens
+                estimated_cost = extractor.estimate_cost(total_content, gpt4_pricing)
+                
+                click.echo(f"   📝 Meetings to analyze: {len(results)}")
+                click.echo(f"   🔢 Total tokens: {total_tokens:,}")
+                click.echo(f"   💰 Estimated cost (GPT-4): ${estimated_cost:.2f}")
+                
+                if estimated_cost > config.cost_warning_threshold:
+                    click.echo(f"   ⚠️  Cost warning: Analysis may be expensive (>${config.cost_warning_threshold})")
+                    if config.require_confirmation and not click.confirm("Continue with analysis?"):
+                        click.echo("Analysis cancelled.")
+                        return
+            else:
+                click.echo("   ℹ️  No meetings found to analyze")
+                return
+        
         async def run_analysis():
             if personal:
                 # Personal analysis
-                personal_analyzer = PersonalAnalyzer(llm_analyzer, templates_dir)
+                personal_analyzer = PersonalAnalyzer(
+                    llm_analyzer, 
+                    templates_dir, 
+                    content_filter=analysis_content_filter,
+                    include_docs=analysis_include_docs
+                )
                 
                 if week:
                     # Analyze specific week
@@ -617,7 +681,12 @@ def analyze(ctx, days, week, personal, provider, model, output, format, min_rele
             
             else:
                 # Weekly summary analysis
-                weekly_analyzer = WeeklyAnalyzer(llm_analyzer, templates_dir)
+                weekly_analyzer = WeeklyAnalyzer(
+                    llm_analyzer, 
+                    templates_dir, 
+                    content_filter=analysis_content_filter,
+                    include_docs=analysis_include_docs
+                )
                 
                 if week:
                     # Analyze specific week

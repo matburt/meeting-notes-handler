@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import json
 
 from .base_analyzer import BaseAnalyzer, MeetingContent, PersonalSummary
+from .content_extractor import MeetingContentExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -15,15 +16,23 @@ logger = logging.getLogger(__name__)
 class PersonalAnalyzer:
     """Analyzer for finding user's action items and discussions."""
     
-    def __init__(self, llm_analyzer: BaseAnalyzer, templates_dir: str):
+    def __init__(self, llm_analyzer: BaseAnalyzer, templates_dir: str, 
+                 content_filter: str = "gemini-only", include_docs: bool = False):
         """Initialize personal analyzer.
         
         Args:
             llm_analyzer: Configured LLM analyzer instance
             templates_dir: Path to prompt templates directory
+            content_filter: Type of content filtering ('gemini-only', 'no-transcripts', 'all')
+            include_docs: Whether to include embedded documents
         """
         self.llm_analyzer = llm_analyzer
         self.templates_dir = Path(templates_dir)
+        self.content_filter = content_filter
+        self.include_docs = include_docs
+        
+        # Initialize content extractor
+        self.content_extractor = MeetingContentExtractor()
         
         # Load the personal actions template
         template_path = self.templates_dir / "personal_actions.jinja2"
@@ -63,7 +72,7 @@ class PersonalAnalyzer:
         return meetings
     
     def _parse_meeting_file(self, file_path: Path) -> Optional[MeetingContent]:
-        """Parse a meeting file into MeetingContent.
+        """Parse a meeting file into MeetingContent with content filtering.
         
         Args:
             file_path: Path to meeting file
@@ -73,7 +82,14 @@ class PersonalAnalyzer:
         """
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+                raw_content = f.read()
+            
+            # Apply content filtering
+            filtered_content = self.content_extractor.extract_content(
+                raw_content, 
+                self.content_filter, 
+                self.include_docs
+            )
             
             # Extract title and date from filename
             # Expected format: meeting_YYYYMMDD_HHMMSS_title.md
@@ -92,7 +108,7 @@ class PersonalAnalyzer:
                 return MeetingContent(
                     title=title.replace('_', ' ').title(),
                     date=meeting_date,
-                    content=content,
+                    content=filtered_content,
                     file_path=str(file_path)
                 )
             else:

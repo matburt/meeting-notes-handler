@@ -447,6 +447,32 @@ analysis:
     max_tokens: 4000
 ```
 
+### ⚠️ **Critical: Token Usage and Costs**
+
+**IMPORTANT**: Real-world meeting data can be extremely large! Based on analysis of actual meeting notes:
+
+- **Small weeks** (2-3 meetings): ~1,000 tokens ($0.01-0.02)
+- **Busy weeks** (20-40 meetings): **1-2 million tokens** ($10-40 with GPT-4!)
+
+#### Token Usage Examples:
+```
+2024-W33: 2 meetings   →      974 tokens  →  ~$0.02
+2025-W29: 38 meetings  → 2,018,765 tokens  →  ~$40.00  
+2025-W32: 26 meetings  → 1,708,573 tokens  →  ~$34.00
+```
+
+#### Cost Protection Features:
+- **Automatic cost estimation** before analysis
+- **Warning prompts** for expensive operations (configurable threshold)
+- **Chunking support** for large weeks to stay within token limits
+- **Model recommendations** (use cheaper models for large weeks)
+
+#### Recommended Approach:
+1. **Start small**: Test with specific weeks first
+2. **Use cost-effective models**: Try `gpt-3.5-turbo` or `claude-haiku` for large weeks
+3. **Set cost limits**: Configure `max_cost_warning` in your config
+4. **Filter content**: Use `--smart-filter` when fetching to reduce content size
+
 ### Advanced Usage
 
 #### Cost Optimization
@@ -656,31 +682,36 @@ analysis:
   provider: "openai"           # openai, anthropic, gemini, openrouter
   templates_dir: "./meeting_notes_handler/templates"
   
+  # Cost and safety settings  
+  max_cost_warning: 10.0       # Warn if estimated cost exceeds this amount ($USD)
+  enable_chunking: true        # Enable automatic chunking for large weeks
+  chunk_size: 100000           # Max tokens per chunk for large weeks
+  
   # Provider-specific settings
   openai:
     api_key_env: "OPENAI_API_KEY"
     model: "gpt-4-turbo-preview"
     temperature: 0.3
-    max_tokens: 4000
+    max_tokens: 16000           # Increased for real-world usage
   
   anthropic:
     api_key_env: "ANTHROPIC_API_KEY"
     model: "claude-3-opus-20240229"
     temperature: 0.3
-    max_tokens: 4000
+    max_tokens: 16000           # Increased for real-world usage
   
   gemini:
     api_key_env: "GEMINI_API_KEY"
     model: "gemini-pro"
     temperature: 0.3
-    max_tokens: 4000
+    max_tokens: 16000           # Increased for real-world usage
   
   openrouter:
     api_key_env: "OPENROUTER_API_KEY"
     model: "anthropic/claude-3-opus"
     base_url: "https://openrouter.ai/api/v1"
     temperature: 0.3
-    max_tokens: 4000
+    max_tokens: 16000           # Increased for real-world usage
   
   # User context for personal analysis
   user_context:
