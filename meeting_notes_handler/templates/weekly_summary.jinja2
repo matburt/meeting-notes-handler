@@ -1,0 +1,54 @@
+Analyze these meetings from the week and identify the most important information. Focus on what truly matters for understanding the week's progress and outcomes.
+
+{% for meeting in meetings %}
+**Meeting: {{ meeting.title }}**
+Date: {{ meeting.date.strftime('%Y-%m-%d %H:%M') }}
+{% if meeting.attendees %}
+Attendees: {{ meeting.attendees | join(', ') }}
+{% endif %}
+
+Content:
+{{ meeting.content }}
+
+---
+{% endfor %}
+
+Please analyze these {{ meetings|length }} meetings and provide a comprehensive summary in the following JSON format:
+
+{
+  "most_important_decisions": [
+    "List the 5-10 most important decisions made this week",
+    "Focus on decisions that will impact future work or change direction"
+  ],
+  "key_themes": [
+    "Identify 3-5 major themes or topics that dominated discussions",
+    "Look for recurring subjects across multiple meetings"
+  ],
+  "critical_action_items": [
+    {
+      "task": "Description of the action item",
+      "owner": "Person responsible (use @username format if mentioned)",
+      "deadline": "When it's due (if mentioned)",
+      "priority": "high/medium/low based on context",
+      "source_meeting": "Which meeting this came from"
+    }
+  ],
+  "notable_risks": [
+    "Any risks, blockers, or concerns mentioned",
+    "Issues that could impact timelines or success"
+  ],
+  "summary": "A concise 2-3 sentence overview of the week's most important outcomes",
+  "confidence_score": 0.85
+}
+
+Focus on:
+- Decisions that will change how work is done
+- Action items with clear owners and deadlines
+- Risks that could derail projects
+- Themes that appear across multiple meetings
+- Information that would be valuable for someone catching up on the week
+
+Ignore:
+- Routine status updates without decisions
+- Minor administrative details
+- Casual conversation or tangential topics

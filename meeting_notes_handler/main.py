@@ -2,6 +2,7 @@
 """Meeting Notes Handler CLI - Main entry point."""
 
 import sys
+import os
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -497,6 +498,272 @@ def changelog(ctx, meeting_name, series_id, last, since, all_series, format):
     except Exception as e:
         logger.error(f"Error during changelog operation: {e}")
         click.echo(f"❌ Error: {e}", err=True)
+
+@cli.command()
+@click.option('--days', '-d', type=int, help='Number of days back to analyze (default: 7)')
+@click.option('--week', '-w', help='Specific week to analyze (YYYY-WW format)')
+@click.option('--personal', '-p', is_flag=True, help='Focus on personal action items and discussions')
+@click.option('--provider', type=click.Choice(['openai', 'anthropic', 'gemini', 'openrouter']), 
+              help='LLM provider to use (overrides config)')
+@click.option('--model', help='Specific model to use (overrides config)')
+@click.option('--output', '-o', help='Save analysis results to file')
+@click.option('--format', type=click.Choice(['json', 'markdown']), default='markdown', 
+              help='Output format')
+@click.option('--min-relevance', type=float, default=0.3, 
+              help='Minimum relevance score for personal analysis (0.0-1.0)')
+@click.option('--content-filter', type=click.Choice(['gemini-only', 'no-transcripts', 'all']), 
+              help='Content filtering mode (overrides config default)')
+@click.option('--include-docs', is_flag=True, 
+              help='Include embedded documents (when using no-transcripts filter)')
+@click.option('--show-token-usage', is_flag=True, 
+              help='Show token usage and cost estimates before processing')
+@click.pass_context
+def analyze(ctx, days, week, personal, provider, model, output, format, min_relevance, 
+           content_filter, include_docs, show_token_usage):
+    """Analyze meeting notes using LLM to generate insights and summaries."""
+    import asyncio
+    from .analyzers import create_analyzer, WeeklyAnalyzer, PersonalAnalyzer
+    
+    config = ctx.obj['config']
+    logger = logging.getLogger(__name__)
+    
+    # Determine provider and model
+    analysis_provider = provider or config.analysis_provider
+    provider_config = config.get_provider_config(analysis_provider).copy()
+    
+    if model:
+        provider_config['model'] = model
+    
+    # Validate that we have required configuration
+    if not provider_config:
+        click.echo(f"❌ No configuration found for provider: {analysis_provider}", err=True)
+        click.echo("Please check your config.yaml or run 'meeting-notes config-show'")
+        sys.exit(1)
+    
+    # Check for API key
+    api_key_env = provider_config.get('api_key_env')
+    if api_key_env and not os.getenv(api_key_env):
+        click.echo(f"❌ API key not found in environment variable: {api_key_env}", err=True)
+        click.echo(f"Please set your {analysis_provider.upper()} API key:")
+        click.echo(f"   export {api_key_env}=your_api_key_here")
+        sys.exit(1)
+    
+    # Get user context for personal analysis
+    user_context = config.user_context.copy()
+    if personal and not user_context.get('user_name'):
+        user_name = click.prompt("Enter your name for personal analysis", type=str)
+        user_context['user_name'] = user_name
+        
+        # Ask for aliases
+        aliases_input = click.prompt("Enter any aliases or alternate names (comma-separated, optional)", 
+                                   default="", show_default=False)
+        if aliases_input.strip():
+            user_context['user_aliases'] = [alias.strip() for alias in aliases_input.split(',')]
+    
+    # Determine content filtering settings
+    analysis_content_filter = content_filter or config.content_filter
+    analysis_include_docs = include_docs or config.include_embedded_docs
+    
+    click.echo("🧠 Analyzing meeting notes...")
+    click.echo(f"   Provider: {analysis_provider}")
+    click.echo(f"   Model: {provider_config.get('model', 'default')}")
+    click.echo(f"   Content filter: {analysis_content_filter}")
+    if analysis_content_filter == 'no-transcripts':
+        click.echo(f"   Include docs: {'yes' if analysis_include_docs else 'no'}")
+    
+    if personal:
+        click.echo(f"   Focus: Personal analysis for {user_context.get('user_name', 'Unknown')}")
+    else:
+        click.echo("   Focus: Weekly summary of important points")
+    
+    try:
+        # Create LLM analyzer
+        llm_analyzer = create_analyzer(analysis_provider, provider_config)
+        templates_dir = str(config.templates_directory)
+        
+        # Show token usage if requested
+        if show_token_usage:
+            from .analyzers.content_extractor import MeetingContentExtractor
+            extractor = MeetingContentExtractor()
+            
+            # Determine which directory to analyze
+            if week:
+                analysis_dir = config.output_directory / week
+                if not analysis_dir.exists():
+                    click.echo(f"❌ Week directory not found: {analysis_dir}", err=True)
+                    return
+                analysis_path = str(analysis_dir)
+            else:
+                analysis_path = str(config.output_directory)
+            
+            click.echo("\n📊 Analyzing token usage...")
+            
+            # Get content from meetings
+            results = extractor.extract_week_content(
+                analysis_path, 
+                analysis_content_filter, 
+                analysis_include_docs
+            )
+            
+            if results:
+                total_content = "\n".join([content for _, content in results])
+                total_tokens = extractor.count_tokens(total_content)
+                
+                # Estimate cost (using GPT-4 pricing as example)
+                gpt4_pricing = {'input': 0.03, 'output': 0.06}  # per 1K tokens
+                estimated_cost = extractor.estimate_cost(total_content, gpt4_pricing)
+                
+                click.echo(f"   📝 Meetings to analyze: {len(results)}")
+                click.echo(f"   🔢 Total tokens: {total_tokens:,}")
+                click.echo(f"   💰 Estimated cost (GPT-4): ${estimated_cost:.2f}")
+                
+                if estimated_cost > config.cost_warning_threshold:
+                    click.echo(f"   ⚠️  Cost warning: Analysis may be expensive (>${config.cost_warning_threshold})")
+                    if config.require_confirmation and not click.confirm("Continue with analysis?"):
+                        click.echo("Analysis cancelled.")
+                        return
+            else:
+                click.echo("   ℹ️  No meetings found to analyze")
+                return
+        
+        async def run_analysis():
+            if personal:
+                # Personal analysis
+                personal_analyzer = PersonalAnalyzer(
+                    llm_analyzer, 
+                    templates_dir, 
+                    content_filter=analysis_content_filter,
+                    include_docs=analysis_include_docs
+                )
+                
+                if week:
+                    # Analyze specific week
+                    week_dir = config.output_directory / week
+                    if not week_dir.exists():
+                        click.echo(f"❌ Week directory not found: {week_dir}", err=True)
+                        return
+                    
+                    result = await personal_analyzer.analyze_personal_week(
+                        week_directory=str(week_dir),
+                        user_context=user_context,
+                        min_relevance=min_relevance,
+                        output_file=output
+                    )
+                    
+                    click.echo(f"\n📊 Personal Analysis Results for {week}:")
+                    
+                else:
+                    # Analyze last N days
+                    result = await personal_analyzer.analyze_personal_last_n_days(
+                        base_directory=str(config.output_directory),
+                        user_context=user_context,
+                        days=days or 30,
+                        min_relevance=min_relevance,
+                        output_file=output
+                    )
+                    
+                    click.echo(f"\n📊 Personal Analysis Results (last {days or 30} days):")
+                
+                # Display personal results
+                click.echo(f"   📈 Meetings analyzed: {result.total_meetings_analyzed}")
+                click.echo(f"   🎯 Relevant meetings: {len(result.meetings_with_involvement)}")
+                click.echo(f"   ✅ Action items assigned: {len(result.action_items)}")
+                click.echo(f"   💬 Discussions involved: {len(result.discussions_involved)}")
+                
+                if result.action_items:
+                    click.echo(f"\n📋 Your Action Items:")
+                    for item in result.action_items[:5]:  # Show first 5
+                        deadline = f" (due {item.get('deadline', 'TBD')})" if item.get('deadline') else ""
+                        priority = f"[{item.get('priority', 'medium').upper()}]"
+                        click.echo(f"   {priority} {item.get('task', 'Unknown task')}{deadline}")
+                    
+                    if len(result.action_items) > 5:
+                        click.echo(f"   ... and {len(result.action_items) - 5} more")
+                
+                if result.meetings_with_involvement:
+                    click.echo(f"\n📝 Meetings with your involvement:")
+                    for meeting_title in result.meetings_with_involvement[:3]:
+                        click.echo(f"   • {meeting_title}")
+                    
+                    if len(result.meetings_with_involvement) > 3:
+                        click.echo(f"   ... and {len(result.meetings_with_involvement) - 3} more")
+            
+            else:
+                # Weekly summary analysis
+                weekly_analyzer = WeeklyAnalyzer(
+                    llm_analyzer, 
+                    templates_dir, 
+                    content_filter=analysis_content_filter,
+                    include_docs=analysis_include_docs
+                )
+                
+                if week:
+                    # Analyze specific week
+                    week_dir = config.output_directory / week
+                    if not week_dir.exists():
+                        click.echo(f"❌ Week directory not found: {week_dir}", err=True)
+                        return
+                    
+                    result = await weekly_analyzer.analyze_week(
+                        week_directory=str(week_dir),
+                        output_file=output
+                    )
+                    
+                    click.echo(f"\n📊 Weekly Analysis Results for {week}:")
+                    
+                else:
+                    # Analyze last N days
+                    result = await weekly_analyzer.analyze_last_n_days(
+                        base_directory=str(config.output_directory),
+                        days=days or 7,
+                        output_file=output
+                    )
+                    
+                    click.echo(f"\n📊 Weekly Analysis Results (last {days or 7} days):")
+                
+                # Display weekly results
+                click.echo(f"   📈 Meetings analyzed: {result.meetings_analyzed}")
+                
+                if result.most_important_decisions:
+                    click.echo(f"\n🎯 Most Important Decisions:")
+                    for i, decision in enumerate(result.most_important_decisions[:3], 1):
+                        click.echo(f"   {i}. {decision}")
+                    
+                    if len(result.most_important_decisions) > 3:
+                        click.echo(f"   ... and {len(result.most_important_decisions) - 3} more")
+                
+                if result.key_themes:
+                    click.echo(f"\n📋 Key Themes:")
+                    for theme in result.key_themes:
+                        click.echo(f"   • {theme}")
+                
+                if result.critical_action_items:
+                    click.echo(f"\n✅ Critical Action Items:")
+                    for item in result.critical_action_items[:3]:
+                        owner = item.get('owner', 'Unknown')
+                        priority = f"[{item.get('priority', 'medium').upper()}]"
+                        click.echo(f"   {priority} {owner}: {item.get('task', 'Unknown task')}")
+                    
+                    if len(result.critical_action_items) > 3:
+                        click.echo(f"   ... and {len(result.critical_action_items) - 3} more")
+                
+                if result.notable_risks:
+                    click.echo(f"\n⚠️  Notable Risks:")
+                    for risk in result.notable_risks:
+                        click.echo(f"   • {risk}")
+        
+        # Run the async analysis
+        asyncio.run(run_analysis())
+        
+        if output:
+            click.echo(f"\n💾 Analysis saved to: {output}")
+        
+        click.echo(f"\n✅ Analysis complete!")
+        
+    except Exception as e:
+        logger.error(f"Error during analysis: {e}")
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
 
 if __name__ == '__main__':
     cli()
