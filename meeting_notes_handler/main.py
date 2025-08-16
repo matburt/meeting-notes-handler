@@ -64,8 +64,9 @@ def cli(ctx, config, log_level, version):
 @click.option('--gemini-only', '-g', is_flag=True, default=False, help='Only fetch Gemini notes and transcripts, skip other documents')
 @click.option('--smart-filter', '-s', is_flag=True, default=False, help='Apply smart content filtering to extract only new content from recurring meetings')
 @click.option('--diff-mode', is_flag=True, default=False, help='Only save new content compared to previous meetings')
+@click.option('--no-smart-transcript-exclusion', is_flag=True, default=False, help='Disable smart transcript exclusion (keep transcripts even when Gemini notes are present)')
 @click.pass_context
-def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter, diff_mode):
+def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter, diff_mode, no_smart_transcript_exclusion):
     """Fetch meeting notes from Google Calendar and Docs."""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
@@ -87,6 +88,8 @@ def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter, 
         click.echo("🧠 SMART FILTER - Extracting only new content from recurring meetings")
     if diff_mode:
         click.echo("🔍 DIFF MODE - Only saving new content compared to previous meetings")
+    if not no_smart_transcript_exclusion:
+        click.echo("🎯 SMART TRANSCRIPT EXCLUSION - Excluding transcripts when Gemini notes are present (saves storage)")
 
     try:
         fetcher = GoogleMeetFetcher(config)
@@ -106,7 +109,8 @@ def fetch(ctx, days, dry_run, week, accepted, force, gemini_only, smart_filter, 
             force_refetch=force, 
             gemini_only=gemini_only, 
             smart_filtering=smart_filter,
-            diff_mode=diff_mode
+            diff_mode=diff_mode,
+            smart_transcript_exclusion=not no_smart_transcript_exclusion
         )
         
         if results['success']:

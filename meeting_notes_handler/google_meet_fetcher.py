@@ -20,6 +20,72 @@ from .series_tracker import MeetingSeriesTracker
 
 logger = logging.getLogger(__name__)
 
+def _has_gemini_notes(content: str) -> bool:
+    """Check if content contains Gemini-generated meeting notes.
+    
+    Args:
+        content: Document content to check
+        
+    Returns:
+        True if content contains Gemini notes sections
+    """
+    # Look for Gemini note indicators
+    gemini_indicators = [
+        r'### Summary\n',
+        r'### Details\n', 
+        r'### Suggested next steps\n',
+        r'# 📝 Notes',
+        r'Notes by Gemini',
+        r'Meeting records.*Transcript'
+    ]
+    
+    # Check if at least 2 of the 3 main Gemini sections are present
+    gemini_section_count = 0
+    main_sections = [r'### Summary\n', r'### Details\n', r'### Suggested next steps\n']
+    
+    for pattern in main_sections:
+        if re.search(pattern, content):
+            gemini_section_count += 1
+    
+    # Also check for overall Gemini indicators
+    has_gemini_indicator = any(re.search(pattern, content) for pattern in gemini_indicators)
+    
+    return gemini_section_count >= 2 or has_gemini_indicator
+
+def _is_transcript_content(content: str, title: str = "") -> bool:
+    """Check if content is primarily a transcript.
+    
+    Args:
+        content: Document content to check
+        title: Document title for additional context
+        
+    Returns:
+        True if content appears to be primarily a transcript
+    """
+    # Check title indicators
+    title_lower = title.lower()
+    if any(keyword in title_lower for keyword in ['transcript', 'recording']):
+        return True
+    
+    # Check content patterns that indicate transcripts
+    transcript_patterns = [
+        r'# 📖 Transcript',
+        r'## Transcript', 
+        r'# Transcript',
+        r'## Meeting Transcript',
+        r'### \d{2}:\d{2}:\d{2}',  # Timestamp patterns like ### 00:15:30
+        r'\*\*.*:\*\* ',  # Speaker patterns like **John Doe:** 
+    ]
+    
+    # Count transcript indicators
+    transcript_indicators = sum(1 for pattern in transcript_patterns if re.search(pattern, content))
+    
+    # Check for high frequency of timestamp patterns (strong transcript indicator)
+    timestamp_pattern = r'### \d{2}:\d{2}:\d{2}'
+    timestamp_count = len(re.findall(timestamp_pattern, content))
+    
+    return transcript_indicators >= 2 or timestamp_count >= 3
+
 class GoogleMeetFetcher:
     """Fetches meeting notes from Google Calendar and Google Docs."""
     
@@ -442,13 +508,15 @@ class GoogleMeetFetcher:
         return list(set(docs_links))  # Remove duplicates
     
     def process_meeting_notes(self, meeting: Dict[str, Any], save_to_file: bool = True, 
-                             smart_filtering: bool = False, diff_mode: bool = False) -> Dict[str, Any]:
+                             smart_filtering: bool = False, diff_mode: bool = False,
+                             smart_transcript_exclusion: bool = True) -> Dict[str, Any]:
         """Process meeting notes by fetching and converting associated docs.
         
         Args:
             meeting: Meeting information dictionary.
             save_to_file: Whether to save the processed notes to file.
             smart_filtering: Whether to apply smart content filtering for new content only.
+            smart_transcript_exclusion: Whether to exclude transcripts when Gemini notes are present.
             
         Returns:
             Dictionary with processed meeting notes and metadata.
@@ -531,6 +599,51 @@ class GoogleMeetFetcher:
         
         if result['notes']:
             result['success'] = True
+            
+            # Apply smart transcript exclusion if enabled (before other filtering)
+            if smart_transcript_exclusion and len(result['notes']) > 1:
+                # Check if any documents contain Gemini notes
+                has_gemini_notes = False
+                gemini_docs = []
+                transcript_docs = []
+                other_docs = []
+                
+                for note in result['notes']:
+                    content = note['content']
+                    title = note['metadata'].get('title', '')
+                    
+                    if _has_gemini_notes(content):
+                        has_gemini_notes = True
+                        gemini_docs.append(note)
+                        logger.debug(f"Found Gemini notes in document: {title}")
+                    elif _is_transcript_content(content, title):
+                        transcript_docs.append(note)
+                        logger.debug(f"Found transcript content in document: {title}")
+                    else:
+                        other_docs.append(note)
+                
+                # If Gemini notes are present, exclude transcripts
+                if has_gemini_notes and transcript_docs:
+                    original_count = len(result['notes'])
+                    
+                    # Keep Gemini docs and other docs, exclude transcripts
+                    filtered_notes = gemini_docs + other_docs
+                    result['notes'] = filtered_notes
+                    
+                    excluded_count = len(transcript_docs)
+                    logger.info(f"Smart transcript exclusion: Excluded {excluded_count} transcript document(s) "
+                               f"because Gemini notes are present. "
+                               f"Kept {len(filtered_notes)}/{original_count} documents.")
+                    
+                    # Add metadata about the filtering
+                    result['transcript_exclusion_applied'] = True
+                    result['transcripts_excluded'] = excluded_count
+                    result['transcripts_excluded_titles'] = [doc['metadata'].get('title', 'Untitled') for doc in transcript_docs]
+                else:
+                    if not has_gemini_notes:
+                        logger.debug("No Gemini notes found - keeping all documents including transcripts")
+                    elif not transcript_docs:
+                        logger.debug("No transcript documents found - no exclusion needed")
             
             # Apply smart content filtering if enabled
             if smart_filtering:
@@ -702,7 +815,8 @@ class GoogleMeetFetcher:
                              force_refetch: bool = False,
                              gemini_only: bool = False,
                              smart_filtering: bool = False,
-                             diff_mode: bool = False) -> Dict[str, Any]:
+                             diff_mode: bool = False,
+                             smart_transcript_exclusion: bool = True) -> Dict[str, Any]:
         """Fetch and process all recent meeting notes.
         
         Args:
@@ -713,6 +827,7 @@ class GoogleMeetFetcher:
             gemini_only: If True, only fetch Gemini notes and transcripts.
             smart_filtering: If True, apply smart content filtering for new content only.
             diff_mode: If True, only save new content compared to previous meetings.
+            smart_transcript_exclusion: If True, exclude transcripts when Gemini notes are present (default: True).
             
         Returns:
             Dictionary with processing results.
@@ -754,7 +869,7 @@ class GoogleMeetFetcher:
                         continue
                 
                 logger.info(f"Processing meeting: {meeting['title']}")
-                process_result = self.process_meeting_notes(meeting, save_to_file=not dry_run, smart_filtering=smart_filtering, diff_mode=diff_mode)
+                process_result = self.process_meeting_notes(meeting, save_to_file=not dry_run, smart_filtering=smart_filtering, diff_mode=diff_mode, smart_transcript_exclusion=smart_transcript_exclusion)
                 
                 results['meetings_processed'] += 1
                 
