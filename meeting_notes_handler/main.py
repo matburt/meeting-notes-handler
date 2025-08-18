@@ -559,6 +559,20 @@ def analyze(ctx, days, week, personal, provider, model, output, format, min_rele
     analysis_content_filter = content_filter or config.content_filter
     analysis_include_docs = include_docs or config.include_embedded_docs
     
+    # Set default output file if not provided
+    if not output:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if personal:
+            if week:
+                output = str(config.output_directory / f"{week}_personal_analysis_{timestamp}.json")
+            else:
+                output = str(config.output_directory / f"personal_analysis_{days or 30}days_{timestamp}.json")
+        else:
+            if week:
+                output = str(config.output_directory / f"{week}_weekly_analysis_{timestamp}.json")
+            else:
+                output = str(config.output_directory / f"weekly_analysis_{days or 7}days_{timestamp}.json")
+    
     click.echo("🧠 Analyzing meeting notes...")
     click.echo(f"   Provider: {analysis_provider}")
     click.echo(f"   Model: {provider_config.get('model', 'default')}")
@@ -570,6 +584,8 @@ def analyze(ctx, days, week, personal, provider, model, output, format, min_rele
         click.echo(f"   Focus: Personal analysis for {user_context.get('user_name', 'Unknown')}")
     else:
         click.echo("   Focus: Weekly summary of important points")
+    
+    click.echo(f"   Output: {output}")
     
     try:
         # Create LLM analyzer
@@ -719,40 +735,55 @@ def analyze(ctx, days, week, personal, provider, model, output, format, min_rele
                 # Display weekly results
                 click.echo(f"   📈 Meetings analyzed: {result.meetings_analyzed}")
                 
+                # Debug: Show result structure if empty
+                if (not result.most_important_decisions and not result.key_themes and 
+                    not result.critical_action_items and not result.notable_risks):
+                    click.echo(f"\n🔍 Debug: Result object type: {type(result)}")
+                    click.echo(f"   Attributes: {[attr for attr in dir(result) if not attr.startswith('_')]}")
+                
                 if result.most_important_decisions:
                     click.echo(f"\n🎯 Most Important Decisions:")
-                    for i, decision in enumerate(result.most_important_decisions[:3], 1):
+                    for i, decision in enumerate(result.most_important_decisions[:5], 1):
                         click.echo(f"   {i}. {decision}")
                     
-                    if len(result.most_important_decisions) > 3:
-                        click.echo(f"   ... and {len(result.most_important_decisions) - 3} more")
+                    if len(result.most_important_decisions) > 5:
+                        click.echo(f"   ... and {len(result.most_important_decisions) - 5} more")
+                else:
+                    click.echo(f"\n🎯 Most Important Decisions: None found")
                 
                 if result.key_themes:
                     click.echo(f"\n📋 Key Themes:")
                     for theme in result.key_themes:
                         click.echo(f"   • {theme}")
+                else:
+                    click.echo(f"\n📋 Key Themes: None found")
                 
                 if result.critical_action_items:
                     click.echo(f"\n✅ Critical Action Items:")
-                    for item in result.critical_action_items[:3]:
-                        owner = item.get('owner', 'Unknown')
-                        priority = f"[{item.get('priority', 'medium').upper()}]"
-                        click.echo(f"   {priority} {owner}: {item.get('task', 'Unknown task')}")
+                    for item in result.critical_action_items[:5]:
+                        if isinstance(item, dict):
+                            owner = item.get('owner', 'Unknown')
+                            priority = f"[{item.get('priority', 'medium').upper()}]"
+                            click.echo(f"   {priority} {owner}: {item.get('task', 'Unknown task')}")
+                        else:
+                            click.echo(f"   • {item}")
                     
-                    if len(result.critical_action_items) > 3:
-                        click.echo(f"   ... and {len(result.critical_action_items) - 3} more")
+                    if len(result.critical_action_items) > 5:
+                        click.echo(f"   ... and {len(result.critical_action_items) - 5} more")
+                else:
+                    click.echo(f"\n✅ Critical Action Items: None found")
                 
                 if result.notable_risks:
                     click.echo(f"\n⚠️  Notable Risks:")
                     for risk in result.notable_risks:
                         click.echo(f"   • {risk}")
+                else:
+                    click.echo(f"\n⚠️  Notable Risks: None found")
         
         # Run the async analysis
         asyncio.run(run_analysis())
         
-        if output:
-            click.echo(f"\n💾 Analysis saved to: {output}")
-        
+        click.echo(f"\n💾 Analysis saved to: {output}")
         click.echo(f"\n✅ Analysis complete!")
         
     except Exception as e:
