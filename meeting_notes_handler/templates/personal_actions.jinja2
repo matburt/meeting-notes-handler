@@ -1,0 +1,66 @@
+Review this meeting and identify any content specifically relevant to {{ user_context.user_name }}. Look for action items assigned to them, discussions they participated in, or decisions that impact their work.
+
+**User Identity Information:**
+- Name: {{ user_context.user_name }}
+{% if user_context.user_aliases %}
+- Also known as: {{ user_context.user_aliases | join(', ') }}
+{% endif %}
+
+**Meeting: {{ meeting.title }}**
+Date: {{ meeting.date.strftime('%Y-%m-%d %H:%M') }}
+{% if meeting.attendees %}
+Attendees: {{ meeting.attendees | join(', ') }}
+{% endif %}
+
+**Meeting Content:**
+{{ meeting.content }}
+
+Please analyze this meeting and provide a summary in the following JSON format:
+
+{
+  "action_items": [
+    {
+      "task": "Specific task assigned to {{ user_context.user_name }}",
+      "deadline": "When it's due (if mentioned)",
+      "priority": "high/medium/low based on context and urgency",
+      "context": "Why this task was assigned or background information",
+      "dependencies": ["Any dependencies or blockers mentioned"]
+    }
+  ],
+  "discussions_involved": [
+    {
+      "topic": "Subject {{ user_context.user_name }} participated in or was consulted about",
+      "role": "What role they played (presenter, expert, decision maker, etc.)",
+      "outcome": "What was decided or concluded",
+      "follow_up_needed": "Any follow-up actions required"
+    }
+  ],
+  "decisions_impacting": [
+    {
+      "decision": "Decision that affects {{ user_context.user_name }}'s work",
+      "impact": "How this decision affects their current or future work",
+      "action_required": "What they need to do because of this decision"
+    }
+  ],
+  "mentions": [
+    "Direct quotes or references where {{ user_context.user_name }} was mentioned by name or alias"
+  ],
+  "relevance_score": 0.85,
+  "summary": "Brief summary of {{ user_context.user_name }}'s involvement and relevance in this meeting"
+}
+
+Focus on:
+- Explicit assignments to {{ user_context.user_name }}
+- Times when {{ user_context.user_name }} spoke or was consulted
+- Decisions that change {{ user_context.user_name }}'s responsibilities
+- Questions or requests directed at {{ user_context.user_name }}
+- Areas where {{ user_context.user_name }}'s expertise was referenced
+
+Set relevance_score based on:
+- 0.9-1.0: {{ user_context.user_name }} had major involvement or received important assignments
+- 0.7-0.8: {{ user_context.user_name }} was mentioned or decisions affect their work
+- 0.5-0.6: {{ user_context.user_name }} was present but minimal direct involvement
+- 0.1-0.4: {{ user_context.user_name }} mentioned in passing or minimal relevance
+- 0.0: No relevance to {{ user_context.user_name }}
+
+If {{ user_context.user_name }} has no relevance to this meeting (score 0.0-0.2), return minimal JSON with empty arrays and a brief explanation in the summary.
