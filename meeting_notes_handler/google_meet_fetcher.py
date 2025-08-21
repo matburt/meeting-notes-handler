@@ -225,12 +225,13 @@ class GoogleMeetFetcher:
             logger.error(f"Authentication failed: {e}")
             return False
     
-    def fetch_recent_meetings(self, days_back: Optional[int] = None, accepted_only: bool = False, gemini_only: bool = False) -> List[Dict[str, Any]]:
+    def fetch_recent_meetings(self, days_back: Optional[int] = None, accepted_only: bool = False, declined_only: bool = False, gemini_only: bool = False) -> List[Dict[str, Any]]:
         """Fetch recent Google Meet meetings from calendar.
         
         Args:
             days_back: Number of days back to search. Uses config default if not provided.
             accepted_only: If True, only fetch meetings the user has accepted or is tentative.
+            declined_only: If True, only fetch meetings the user has declined.
             gemini_only: If True, only fetch Gemini notes and transcripts.
             
         Returns:
@@ -268,6 +269,10 @@ class GoogleMeetFetcher:
                 if self._is_google_meet_meeting(event):
                     if accepted_only and not self._is_user_attending(event):
                         logger.debug(f"Skipping meeting due to non-accepted status: {event.get('summary')}")
+                        continue
+                    
+                    if declined_only and self._is_user_attending(event):
+                        logger.debug(f"Skipping meeting due to non-declined status: {event.get('summary')}")
                         continue
 
                     meeting_info = self._extract_meeting_info(event, gemini_only)
@@ -812,6 +817,7 @@ class GoogleMeetFetcher:
     def fetch_and_process_all(self, days_back: Optional[int] = None, 
                              dry_run: bool = False,
                              accepted_only: bool = False,
+                             declined_only: bool = False,
                              force_refetch: bool = False,
                              gemini_only: bool = False,
                              smart_filtering: bool = False,
@@ -823,6 +829,7 @@ class GoogleMeetFetcher:
             days_back: Number of days back to search.
             dry_run: If True, don't save files, just return results.
             accepted_only: If True, only fetch meetings the user has accepted.
+            declined_only: If True, only fetch meetings the user has declined.
             force_refetch: If True, reprocess meetings even if already processed.
             gemini_only: If True, only fetch Gemini notes and transcripts.
             smart_filtering: If True, apply smart content filtering for new content only.
@@ -835,7 +842,7 @@ class GoogleMeetFetcher:
         if not self.authenticate():
             return {'success': False, 'error': 'Authentication failed'}
         
-        meetings = self.fetch_recent_meetings(days_back, accepted_only=accepted_only, gemini_only=gemini_only)
+        meetings = self.fetch_recent_meetings(days_back, accepted_only=accepted_only, declined_only=declined_only, gemini_only=gemini_only)
         
         results = {
             'success': True,
